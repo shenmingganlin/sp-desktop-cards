@@ -23,6 +23,14 @@
 - SP 的 REST API 不会推送变化，小窗每 2 秒查一次当前计时，每 15 秒查一次任务列表。在 SP 里改了任务，小窗最多 15 秒后更新。
 - 日历事件（Google 日历、CalDAV 插件的数据）读不到，REST API 不提供。
 - 番茄钟只能看，暂停/继续请在 SP 里操作。
+- **启动后立刻退出、没有窗口**：Electron 45 启动时会检查安装目录的权限。如果目录的权限表里有某个应用沙盒（AppContainer）的专属条目，却没有「所有应用程序包」，就会拒绝启动。装过 Codex 等带沙盒的软件后，`%LOCALAPPDATA%\Programs` 和 `%TEMP%` 可能是这种状态。解决办法二选一：
+  - 安装时换一个目录（例如 `D:\Apps\SP 今日小窗`），或用 zip 版解压到别的盘；
+  - 给安装目录补上权限（把路径换成你的安装目录）：`icacls "安装目录" /grant *S-1-15-2-1:(OI)(CI)(RX)`
+
+## 下载
+
+- `sp-today-widget-<版本>-setup.exe`：安装版，可选安装目录，带开始菜单和桌面快捷方式。
+- `sp-today-widget-<版本>-win-x64.zip`：免安装版，解压后运行 `SP-Today-Widget.exe`。
 
 ## 开发
 
@@ -32,7 +40,7 @@ npm start          # 运行
 npm test           # 数据层、客户端、轮询、设置的单元测试
 npm run smoke      # 用假 SP 启动真实窗口截图，输出到 .smoke/
 npm run ui-check   # 用 Playwright 点一遍勾选、计时、折叠、设置、断线
-npm run dist       # 打 Windows 安装包和免安装版，输出到 dist/
+npm run dist       # 打 Windows 安装包和 zip，输出到 dist/
 ```
 
 代码结构：

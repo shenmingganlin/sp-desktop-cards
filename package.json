@@ -10,7 +10,7 @@
   "scripts": {
     "start": "electron .",
     "test": "node --test \"test/*.test.js\"",
-    "dist": "electron-builder --win",
+    "dist": "node --require ./scripts/copyfile-fallback.cjs node_modules/electron-builder/cli.js --win",
     "smoke": "node scripts/smoke.mjs",
     "ui-check": "node scripts/ui-check.mjs",
     "icons": "python scripts/icons.py"
@@ -23,6 +23,7 @@
   "build": {
     "appId": "io.github.shenmingganlin.sp-today-widget",
     "productName": "SP 今日小窗",
+    "executableName": "SP-Today-Widget",
     "directories": {
       "output": "dist"
     },
@@ -43,13 +44,14 @@
           ]
         },
         {
-          "target": "portable",
+          "target": "zip",
           "arch": [
             "x64"
           ]
         }
       ],
-      "icon": "assets/icon.png"
+      "icon": "assets/icon.png",
+      "artifactName": "sp-today-widget-${version}-win-x64.${ext}"
     },
     "nsis": {
       "oneClick": false,
@@ -58,9 +60,6 @@
       "shortcutName": "SP 今日小窗",
       "uninstallDisplayName": "SP 今日小窗",
       "artifactName": "sp-today-widget-${version}-setup.${ext}"
-    },
-    "portable": {
-      "artifactName": "sp-today-widget-${version}-portable.${ext}"
     }
   }
 }
