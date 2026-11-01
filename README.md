@@ -29,6 +29,8 @@
 
 ## 下载
 
+在 [Releases](https://github.com/shenmingganlin/sp-today-widget/releases/latest) 页面下载：
+
 - `sp-today-widget-<版本>-setup.exe`：安装版，可选安装目录，带开始菜单和桌面快捷方式。
 - `sp-today-widget-<版本>-win-x64.zip`：免安装版，解压后运行 `SP-Today-Widget.exe`。
 
