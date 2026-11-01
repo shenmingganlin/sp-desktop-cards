@@ -1,0 +1,66 @@
+{
+  "name": "sp-today-widget",
+  "productName": "SP 今日小窗",
+  "version": "0.1.0",
+  "description": "Super Productivity 的置顶桌面小窗：今日任务、当前计时与番茄钟、逾期提醒、今日统计。",
+  "main": "src/main/main.js",
+  "type": "module",
+  "license": "MIT",
+  "author": "shenmingganlin",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test \"test/*.test.js\"",
+    "dist": "electron-builder --win",
+    "smoke": "node scripts/smoke.mjs",
+    "ui-check": "node scripts/ui-check.mjs",
+    "icons": "python scripts/icons.py"
+  },
+  "devDependencies": {
+    "electron": "^45.2.1",
+    "electron-builder": "^26.18.0",
+    "playwright-core": "^1.64.1"
+  },
+  "build": {
+    "appId": "io.github.shenmingganlin.sp-today-widget",
+    "productName": "SP 今日小窗",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "assets/icon.png",
+      "assets/tray.png",
+      "assets/tray@2x.png",
+      "package.json",
+      "LICENSE"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "shortcutName": "SP 今日小窗",
+      "uninstallDisplayName": "SP 今日小窗",
+      "artifactName": "sp-today-widget-${version}-setup.${ext}"
+    },
+    "portable": {
+      "artifactName": "sp-today-widget-${version}-portable.${ext}"
+    }
+  }
+}

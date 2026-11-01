@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:" />
+    <title>SP 今日小窗</title>
+    <link rel="stylesheet" href="widget.css" />
+  </head>
+  <body>
+    <header id="bar">
+      <button id="collapse" class="icon" title="折叠/展开">▾</button>
+      <div id="now" class="drag">
+        <div id="now-title">没有在计时的任务</div>
+        <div id="now-sub"></div>
+      </div>
+      <div id="now-time" class="drag"></div>
+      <button id="stop" class="icon" title="停止计时" hidden>❚❚</button>
+      <button id="open-sp" class="icon" title="打开 Super Productivity">↗</button>
+      <button id="toggle-settings" class="icon" title="设置">⚙</button>
+      <button id="hide" class="icon" title="藏到托盘">✕</button>
+    </header>
+
+    <main id="body">
+      <div id="banner" hidden></div>
+      <section id="settings" hidden></section>
+      <div id="lists"></div>
+    </main>
+
+    <footer id="stats"></footer>
+    <div id="toast" hidden></div>
+    <script src="widget.js"></script>
+  </body>
+</html>
