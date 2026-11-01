@@ -3,6 +3,12 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("widget", {
+  // 主进程的一次性通知：提示音、提示条
+  onEvent(callback) {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on("event", listener);
+    return () => ipcRenderer.removeListener("event", listener);
+  },
   onState(callback) {
     const listener = (_event, state) => callback(state);
     ipcRenderer.on("state", listener);

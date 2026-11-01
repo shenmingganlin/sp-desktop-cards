@@ -182,6 +182,14 @@ body.collapsed #body, body.collapsed #foot, body.collapsed #banner { display: no
 .btn:hover { background: #4a4a4a; }
 .btn.primary { background: var(--accent); color: #fff; }
 .btn.primary:hover { background: #ff6ba1; }
+.btn.danger, .btn.danger:hover { background: var(--danger); color: #fff; }
+
+/* 番茄钟到点：卡片浮到最上面，边框闪几下后保持高亮，点一下回去 */
+body.attention { border-color: var(--accent); animation: attention 0.9s ease-in-out 4; }
+body.attention #head { background: #4a2233; }
+@keyframes attention {
+  50% { border-color: transparent; box-shadow: inset 0 0 0 2px var(--accent); }
+}
 .link { color: var(--focus); font-size: 11px; padding: 0 2px; }
 .link:hover { text-decoration: underline; }
 

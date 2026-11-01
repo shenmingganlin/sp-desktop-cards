@@ -44,6 +44,9 @@ export const DEFAULTS = Object.freeze({
   quickAddProjectId: "", // 空表示收件箱
   pomodoro: DEFAULT_POMODORO,
   pomodoroStats: { day: null, doneToday: 0, streak: 0 },
+  pomodoroSession: null, // 打开「重启后接着走」时存进行中的番茄，读的时候由 pomodoro.restore 检查
+  tourDone: false, // 看过使用教程
+  altHints: 0, // 整组拖动时提示过几次「按住 Alt 只挪一张」
 });
 
 const clampNumber = (v, min, max, fallback) =>
@@ -94,8 +97,9 @@ function cleanPomodoro(input, base) {
   p.shortMin = clampInt(input.shortMin, 1, 60, p.shortMin);
   p.longMin = clampInt(input.longMin, 1, 120, p.longMin);
   p.longEvery = clampInt(input.longEvery, 1, 12, p.longEvery);
-  if (typeof input.autoNext === "boolean") p.autoNext = input.autoNext;
-  if (typeof input.linkTracking === "boolean") p.linkTracking = input.linkTracking;
+  for (const key of ["autoNext", "linkTracking", "sound", "surface", "resume", "confirmStop"]) {
+    if (typeof input[key] === "boolean") p[key] = input[key];
+  }
   return p;
 }
 
@@ -107,7 +111,7 @@ export function sanitize(input, base = DEFAULTS) {
   const s = { ...base, cards: cleanCards(null, base.cards), pomodoro: { ...base.pomodoro } };
   if (!input || typeof input !== "object") return s;
   if (MODES.includes(input.mode)) s.mode = input.mode;
-  for (const key of ["locked", "openAtLogin", "showDone"]) {
+  for (const key of ["locked", "openAtLogin", "showDone", "tourDone"]) {
     if (typeof input[key] === "boolean") s[key] = input[key];
   }
   s.opacity = clampNumber(input.opacity, 0.3, 1, s.opacity);
@@ -120,6 +124,11 @@ export function sanitize(input, base = DEFAULTS) {
   if (typeof input.manualToken === "string") s.manualToken = input.manualToken;
   if (input.cards) s.cards = cleanCards(input.cards, s.cards);
   if (input.pomodoro) s.pomodoro = cleanPomodoro(input.pomodoro, s.pomodoro);
+  s.altHints = clampInt(input.altHints, 0, 99, s.altHints);
+  if (input.pomodoroSession === null || (input.pomodoroSession && typeof input.pomodoroSession === "object")) {
+    const { phase, status, endsAt, remainingMs, durationMs, taskId } = input.pomodoroSession || {};
+    s.pomodoroSession = input.pomodoroSession && { phase, status, endsAt, remainingMs, durationMs, taskId };
+  }
   const ps = input.pomodoroStats;
   if (ps && typeof ps === "object") {
     s.pomodoroStats = {

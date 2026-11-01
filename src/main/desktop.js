@@ -28,7 +28,14 @@ function load() {
       SetWindowPos: u.func(`bool SetWindowPos(${H} h, intptr_t after, int x, int y, int cx, int cy, uint32_t f)`),
       GetAsyncKeyState: u.func("int16_t GetAsyncKeyState(int key)"),
       GetSystemMetrics: u.func("int GetSystemMetrics(int index)"),
+      GetWindowLongPtrW: u.func(`intptr_t GetWindowLongPtrW(${H} h, int i)`),
     };
+    const c = koffi.load("comctl32.dll");
+    const Proc = koffi.proto(`intptr_t __stdcall SubclassProc(${H} h, uint32_t msg, uintptr_t w, intptr_t l, uintptr_t id, uintptr_t ref)`);
+    api.SetWindowSubclass = c.func(`bool __stdcall SetWindowSubclass(${H} h, SubclassProc *proc, uintptr_t id, uintptr_t ref)`);
+    api.RemoveWindowSubclass = c.func(`bool __stdcall RemoveWindowSubclass(${H} h, SubclassProc *proc, uintptr_t id)`);
+    api.DefSubclassProc = c.func(`intptr_t __stdcall DefSubclassProc(${H} h, uint32_t msg, uintptr_t w, intptr_t l)`);
+    api.subclassProc = koffi.register(subclassProc, koffi.pointer(Proc));
   } catch {
     api = false;
   }
@@ -76,6 +83,31 @@ export function detach(win) {
   const a = load();
   if (!a || win.isDestroyed()) return;
   a.SetWindowLongPtrW(hwndOf(win), GWLP_HWNDPARENT, 0n);
+}
+
+// ── 左键不被吞 ──
+// 用久了 Chromium 有时会把卡片里的 Chrome_RenderWidgetHostHWND 子窗口藏起来（真机上见过，新开的卡片没有），之后点击直接落在顶层窗口上。
+// 顶层窗口不可激活时，Chromium 对 WM_MOUSEACTIVATE 回 MA_NOACTIVATEANDEAT：按下那一下被系统丢掉，只剩松开。
+// 左键凑不成 click，所以怎么点都没反应；右键菜单是松开时弹的，所以右键好使。
+// 这里给卡片窗口挂一个子类过程，改回 MA_NOACTIVATE：照样不激活，但按下照常送给页面。只管这一条消息。
+const WM_MOUSEACTIVATE = 0x0021;
+const WM_NCDESTROY = 0x0082;
+const MA_NOACTIVATE = 3;
+const GWL_EXSTYLE = -20;
+const WS_EX_NOACTIVATE = 0x08000000n;
+const SUBCLASS_ID = 0x5350; // "SP"
+
+function subclassProc(h, msg, w, l, id) {
+  if (msg === WM_MOUSEACTIVATE && (big(api.GetWindowLongPtrW(h, GWL_EXSTYLE)) & WS_EX_NOACTIVATE)) return MA_NOACTIVATE;
+  if (msg === WM_NCDESTROY) api.RemoveWindowSubclass(h, api.subclassProc, id);
+  return api.DefSubclassProc(h, msg, w, l);
+}
+
+/** 让不可激活的卡片也能收到左键按下。每个窗口调一次，重复调用无害。 */
+export function keepClicks(win) {
+  const a = load();
+  if (!a || win.isDestroyed()) return false;
+  return a.SetWindowSubclass(hwndOf(win), a.subclassProc, SUBCLASS_ID, 0);
 }
 
 /** 沉到最底层（仍在桌面之上）。 */

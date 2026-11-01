@@ -1,6 +1,6 @@
 // desktop-check.mjs — 「嵌入桌面」模式的真机检查（只连假 SP）：
 //   1. 普通窗口能盖住卡片；2. 按 Win+D 后卡片还在桌面上，再按一次别的窗口回来；
-//   3. 点「+」后用真键盘能打字新建；4. 点到别处后卡片又沉到最底下。
+//   3. 子窗口被藏起来后左键照样点得动；4. 点「+」后用真键盘能打字新建；5. 点到别处后卡片又沉到最底下。
 // 会真的按 Win+D、移动鼠标，运行时别碰电脑。用法：node scripts/desktop-check.mjs（检查安装包：设 SPW_EXE）
 
 import assert from "node:assert/strict";
@@ -27,6 +27,7 @@ const EnumProc = koffi.proto("bool EnumProc(uintptr_t h, intptr_t l)");
 const EnumWindows = u.func("bool EnumWindows(EnumProc *cb, intptr_t l)");
 const IsWindowVisible = u.func(`bool IsWindowVisible(${H} h)`);
 const IsIconic = u.func(`bool IsIconic(${H} h)`);
+const FindWindowExW = u.func(`${H} FindWindowExW(${H} parent, ${H} after, str16 cls, str16 name)`);
 const ShowWindow = u.func(`bool ShowWindow(${H} h, int cmd)`);
 const SetForegroundWindow = u.func(`bool SetForegroundWindow(${H} h)`);
 const GetClassNameW = u.func(`int GetClassNameW(${H} h, _Out_ uint16_t *buf, int n)`);
@@ -58,6 +59,7 @@ const userData = path.join(out, "user-data");
 fs.mkdirSync(userData, { recursive: true });
 fs.writeFileSync(path.join(userData, "settings.json"), JSON.stringify({
   version: 2,
+  tourDone: true,
   mode: "desktop",
   cards: { today: { visible: true, bounds: { x: 600, y: 200, width: 320, height: 400 } } },
 }));
@@ -147,6 +149,27 @@ try {
       const now = BigInt(GetForegroundWindow());
       assert.notEqual(now, card, "卡片不该成为前台窗口");
       assert.notEqual(rootAt(cx, cy), card, `卡片应该又被盖住（前台：${describe(now)}）`);
+    });
+
+    // 用久了 Chromium 会把卡片里的子窗口藏起来，之后左键按下被系统吞掉，怎么点都没反应（0.2.0 的 bug）
+    await check("子窗口藏起来后，显示桌面时左键照样点得动", async () => {
+      await winD();
+      const child = FindWindowExW(card, 0, "Chrome_RenderWidgetHostHWND", null);
+      assert.ok(child, "没找到 Chrome_RenderWidgetHostHWND");
+      ShowWindow(child, 0);
+      await sleep(300);
+      await page.evaluate(() => {
+        window.__downs = 0;
+        document.addEventListener("pointerdown", () => window.__downs++, true);
+      });
+      const r = await page.locator(".row .text").first().boundingBox();
+      const x = info.b.x + r.x + r.width / 2;
+      const y = info.b.y + r.y + r.height / 2;
+      assert.equal(rootAt(x, y), card, "任务上面盖着别的窗口，不点");
+      for (let i = 0; i < 3; i++) await click(x + i, y);
+      assert.equal(await page.evaluate(() => window.__downs), 3, "左键按下没送到页面");
+      ShowWindow(child, 4);
+      await winD();
     });
 
     await check("显示桌面时点「+」，能用键盘打字新建", async () => {

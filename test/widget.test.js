@@ -90,6 +90,36 @@ test("番茄钟：暂停、跳过、结束、自动下一阶段、跨天清零",
   assert.equal(pomo.rollDay(y, "2026-11-02").doneToday, 0);
   assert.equal(pomo.rollDay(y, "2026-11-01"), y);
 });
+test("番茄钟：重启后接着走，关着时到点的直接进入下一阶段、不补发提醒", () => {
+  const s = pomo.start(pomo.createState(), cfg, 0, "t").state;
+  const saved = pomo.sessionOf(s);
+  assert.equal(pomo.sessionOf(pomo.createState()), null, "没在走时不存");
+
+  const fresh = pomo.createState({ day: "d", doneToday: 2, streak: 0 });
+  const back = pomo.restore(fresh, saved, cfg, 10 * MIN);
+  assert.equal(back.status, "running");
+  assert.equal(back.endsAt, 25 * MIN);
+  assert.equal(back.doneToday, 2, "今天的番茄数不被冲掉");
+
+  const late = pomo.restore(fresh, saved, { ...cfg, autoNext: true }, 40 * MIN);
+  assert.equal(late.phase, "short");
+  assert.equal(late.status, "ready", "关着时到点的，开了也等你点开始");
+  assert.equal(late.doneToday, 3);
+
+  const paused = pomo.pause(s, cfg, 5 * MIN).state;
+  assert.equal(pomo.restore(fresh, pomo.sessionOf(paused), cfg, 999 * MIN).remainingMs, 20 * MIN, "暂停的不受时间影响");
+  assert.equal(pomo.restore(fresh, { phase: "work", status: "running", endsAt: "x", durationMs: 1 }, cfg, 0), fresh, "坏数据不恢复");
+  assert.equal(pomo.restore(fresh, null, cfg, 0), fresh);
+});
+
+test("番茄钟：到点的提醒带上提示音种类", () => {
+  const s = pomo.start(pomo.createState(), cfg, 0, null).state;
+  const r = pomo.tick(s, cfg, 25 * MIN);
+  assert.equal(r.effects.find((e) => e.type === "notify").sound, "work");
+  const b = pomo.tick(pomo.resume(r.state, cfg, 25 * MIN).state, cfg, 30 * MIN);
+  assert.equal(b.effects.find((e) => e.type === "notify").sound, "break");
+});
+
 // 拼在一起的一列：a 在上，b 在 a 下面，c 在 b 下面；d 拼在 a 右边；e 离得远
 const H = 100;
 const rect = (x, y, width = 300, height = H) => ({ x, y, width, height });
@@ -167,4 +197,13 @@ test("设置：合并一张卡片、番茄钟按字段收敛", () => {
   assert.equal(sanitize({ mode: "floating" }).mode, "top");
   assert.equal(sanitize({ scheduleStartHour: 20, scheduleEndHour: 10 }).scheduleEndHour, 21);
   assert.equal(sanitize({ plannerDays: 100 }).plannerDays, 14);
+  const d = sanitize(null).pomodoro;
+  assert.deepEqual([d.sound, d.surface, d.resume, d.confirmStop], [true, true, false, false], "提示音和浮到最前默认开，另外两项默认关");
+  assert.equal(sanitize({ pomodoro: { resume: "yes" } }).pomodoro.resume, false);
+  assert.equal(sanitize({ tourDone: true }).tourDone, true);
+  assert.equal(sanitize({}).tourDone, false, "旧版升级上来也看一次教程");
+  assert.equal(sanitize({ altHints: 1e9 }).altHints, 99);
+  const kept = sanitize({ pomodoroSession: { phase: "work", status: "running", endsAt: 1, durationMs: 2, taskId: "t", evil: 1 } });
+  assert.ok(!("evil" in kept.pomodoroSession));
+  assert.equal(sanitize({ pomodoroSession: null }, kept).pomodoroSession, null);
 });

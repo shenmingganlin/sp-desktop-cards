@@ -57,6 +57,7 @@ output { width: 36px; text-align: right; color: var(--dim); font-size: 12px; }
   cursor: pointer;
 }
 .btn:hover { background: #3a3a3a; }
+.btn.inline { margin-top: 0; padding: 1px 10px; }
 
 .token-row { display: flex; gap: 6px; }
 .token-row input { flex: 1; min-width: 0; }

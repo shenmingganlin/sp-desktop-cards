@@ -69,6 +69,11 @@
   }
 
   $("reset-layout").addEventListener("click", () => act("resetLayout"));
+  $("chime-test").addEventListener("click", (e) => {
+    e.preventDefault(); // 按钮在 label 里，别顺带切换旁边的勾选框
+    Chime.play("work").catch(() => {});
+  });
+  $("tour").addEventListener("click", () => act("openTour"));
   $("refresh").addEventListener("click", () => act("refresh"));
   $("token-save").addEventListener("click", async () => {
     const input = $("token");

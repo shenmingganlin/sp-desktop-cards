@@ -299,6 +299,7 @@ const W = (() => {
   function render(force = false) {
     const d = def();
     document.body.classList.toggle("collapsed", collapsed());
+    document.body.classList.toggle("attention", !!state.attention && TYPE === "focus");
     $("collapse").textContent = collapsed() ? "▸" : "▾";
     $("title").textContent = d.title || "";
     renderTools();
@@ -349,6 +350,11 @@ const W = (() => {
     dragging = false;
     window.widget.dragEnd();
   }
+
+  // 番茄钟到点时卡片浮到最上面；在卡片上随便点一下就回原位（点的是按钮也照常生效）
+  document.addEventListener("pointerdown", () => {
+    if (document.body.classList.contains("attention")) act("ack");
+  }, true);
 
   head.addEventListener("pointerdown", (e) => {
     if (e.button !== 0 || e.target.closest("button, input, select")) return;

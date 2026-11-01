@@ -136,6 +136,7 @@ function pushState() {
     error: lastError,
     settings: s,
     pomodoro: pomoView(),
+    attention: cards.isAttending("focus"),
     snapshotAt: raw?.snapshotAt ?? null,
     ticking: raw?.ticking ?? null,
   };
@@ -152,11 +153,21 @@ function pushState() {
 // 状态机在 pomodoro.js；这里负责定时、执行副作用（让 SP 计时、发通知）、保存今天的番茄数。
 function applyPomo({ state, effects }) {
   pomoState = state;
-  settings.update({ pomodoroStats: { day: state.day, doneToday: state.doneToday, streak: state.streak } });
+  savePomo();
   clearTimeout(pomoTimer);
   pomoTimer = state.status === "running" ? setTimeout(pomoTick, Math.max(0, state.endsAt - Date.now()) + 50) : null;
   for (const effect of effects) runEffect(effect);
+  syncTrayTip();
   pushState();
+}
+
+/** 今天的番茄数总是存；进行中的番茄只在打开「重启后接着走」时存。 */
+function savePomo() {
+  const s = pomoState;
+  settings.update({
+    pomodoroStats: { day: s.day, doneToday: s.doneToday, streak: s.streak },
+    pomodoroSession: settings.get().pomodoro.resume ? pomo.sessionOf(s) : null,
+  });
 }
 
 function pomoTick() {
@@ -165,7 +176,7 @@ function pomoTick() {
 
 async function runEffect(effect) {
   try {
-    if (effect.type === "notify") return notify(effect.title, effect.body);
+    if (effect.type === "notify") return notify(effect);
     if (effect.type === "track") await client.start(effect.taskId);
     // 只在 SP 还在计这个任务时才停：用户可能已经换了别的任务
     if (effect.type === "untrack" && (await client.current())?.id === effect.taskId) await client.stop();
@@ -176,23 +187,97 @@ async function runEffect(effect) {
   }
 }
 
-function notify(title, body) {
+// ── 阶段结束的提醒 ──
+// 系统通知在勿扰、专注助手打开时不弹也不响，所以另外三样不靠它：卡片页面自己放提示音，
+// 「专注」卡片浮到所有窗口上面并闪一闪，通知一直留着直到点掉或开始下一阶段。
+let toastNote = null;
+let attentionTimer = null;
+
+function notify({ title, body, sound }) {
+  const cfg = settings.get().pomodoro;
+  const rang = cfg.sound && chime(sound);
+  if (cfg.surface) {
+    attention(true);
+    // 自动开始了下一阶段就不用等人点，过一会儿自己回去
+    if (cfg.autoNext) attentionTimer = setTimeout(() => attention(false), 20_000);
+  }
   if (SMOKE || !Notification.isSupported()) return;
-  new Notification({ title, body, icon, silent: false }).show();
+  toastNote?.close();
+  // 卡片已经响过了，通知就别再响一遍
+  toastNote = new Notification({ title, body, icon, silent: rang, timeoutType: "never" });
+  toastNote.on("click", () => {
+    if (!cards.isShown()) cards.showAll();
+    attention(true);
+  });
+  toastNote.show();
 }
 
+/** 提示音由一张卡片的页面放，优先「专注」。卡片全隐藏时窗口还在，照样能响。 */
+function chime(kind) {
+  const type = cards.types().includes("focus") ? "focus" : cards.types()[0];
+  if (type) cards.send(type, "event", { type: "chime", kind });
+  return !!type;
+}
+
+function attention(on) {
+  clearTimeout(attentionTimer);
+  attentionTimer = null;
+  const was = cards.isAttending("focus");
+  if (cards.attend("focus", on) !== was) pushState();
+}
+
+/** 用户对番茄钟有了操作：提醒都收起来。 */
+function dismissReminders() {
+  attention(false);
+  toastNote?.close();
+  toastNote = null;
+}
+
+/** 番茄钟操作：先收起到点提醒，再走状态机。 */
+const pomoAction = (fn) => (payload) => {
+  dismissReminders();
+  applyPomo(fn(payload, settings.get().pomodoro, Date.now()));
+  return OK;
+};
+
 const pomoActions = {
-  pomoStart: ({ taskId }) => {
+  pomoStart: pomoAction(({ taskId }, cfg, now) => {
     // 没指定任务时用 SP 当前在计时的任务
     const id = isId(taskId) ? taskId : raw?.current?.id ?? null;
-    applyPomo(pomo.start(pomo.rollDay(pomoState, currentDay()), settings.get().pomodoro, Date.now(), id));
-    return OK;
-  },
-  pomoPause: () => (applyPomo(pomo.pause(pomoState, settings.get().pomodoro, Date.now())), OK),
-  pomoResume: () => (applyPomo(pomo.resume(pomoState, settings.get().pomodoro, Date.now())), OK),
-  pomoSkip: () => (applyPomo(pomo.skip(pomoState, settings.get().pomodoro, Date.now())), OK),
-  pomoStop: () => (applyPomo(pomo.stop(pomoState, settings.get().pomodoro)), OK),
+    return pomo.start(pomo.rollDay(pomoState, currentDay()), cfg, now, id);
+  }),
+  pomoPause: pomoAction((_p, cfg, now) => pomo.pause(pomoState, cfg, now)),
+  pomoResume: pomoAction((_p, cfg, now) => pomo.resume(pomoState, cfg, now)),
+  pomoSkip: pomoAction((_p, cfg, now) => pomo.skip(pomoState, cfg, now)),
+  pomoStop: pomoAction((_p, cfg) => pomo.stop(pomoState, cfg)),
+  // 浮上来的卡片被点了一下：回到原来的位置
+  ack: () => (attention(false), OK),
 };
+
+// ── 托盘提示：番茄钟在走时显示剩余时间，卡片被盖住也能看 ──
+let trayTimer = null;
+
+function trayTip() {
+  const p = pomoState;
+  if (p.status === "idle") return "SP 今日小窗";
+  const ms = Math.max(0, p.status === "running" ? p.endsAt - Date.now() : p.remainingMs);
+  const sec = Math.ceil(ms / 1000);
+  const clock = `${String(Math.floor(sec / 60)).padStart(2, "0")}:${String(sec % 60).padStart(2, "0")}`;
+  const label = pomo.PHASE_LABEL[p.phase];
+  if (p.status === "ready") return `SP 今日小窗 · ${label}就绪，等你开始`;
+  return `SP 今日小窗 · ${label} ${clock}${p.status === "paused" ? "（已暂停）" : ""}`;
+}
+
+function syncTrayTip() {
+  if (!tray) return;
+  tray.setToolTip(trayTip());
+  const ticking = pomoState.status === "running";
+  if (ticking && !trayTimer) trayTimer = setInterval(() => tray?.setToolTip(trayTip()), 1000);
+  if (!ticking && trayTimer) {
+    clearInterval(trayTimer);
+    trayTimer = null;
+  }
+}
 
 // ── 菜单 ──
 function sharedMenu() {
@@ -212,6 +297,7 @@ function sharedMenu() {
     { type: "separator" },
     { label: "打开 Super Productivity", click: openSp },
     { label: "设置…", click: openSettings },
+    { label: "使用教程", click: openTour },
   ];
 }
 
@@ -275,6 +361,40 @@ function openSettings() {
   settingsWin.loadFile(path.join(renderer, "settings.html"));
 }
 
+// ── 使用教程：第一次启动（含从旧版升级）时弹一次，之后从菜单打开 ──
+let tourWin = null;
+
+function openTour() {
+  if (tourWin && !tourWin.isDestroyed()) {
+    tourWin.show();
+    tourWin.focus();
+    return;
+  }
+  tourWin = new BrowserWindow({
+    width: 460,
+    height: 440,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    show: false,
+    autoHideMenuBar: true,
+    backgroundColor: "#1f1f1f",
+    title: "SP 今日小窗 · 使用教程",
+    icon,
+    webPreferences: { preload, contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: false },
+  });
+  tourWin.setMenu(null);
+  tourWin.webContents.on("will-navigate", (e) => e.preventDefault());
+  tourWin.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  tourWin.once("ready-to-show", () => tourWin.show());
+  // 看完或直接关掉都算看过，不再自动弹
+  tourWin.on("closed", () => {
+    tourWin = null;
+    if (!settings.get().tourDone) settings.update({ tourDone: true });
+  });
+  tourWin.loadFile(path.join(renderer, "tour.html"));
+}
+
 // ── 设置 ──
 function saveSettings(patch) {
   const before = settings.get();
@@ -283,6 +403,8 @@ function saveSettings(patch) {
   if (s.locked !== before.locked) cards.setLocked(s.locked);
   if (s.opacity !== before.opacity) cards.setOpacity(s.opacity);
   if (s.openAtLogin !== before.openAtLogin && app.isPackaged) app.setLoginItemSettings({ openAtLogin: s.openAtLogin });
+  if (s.pomodoro.resume !== before.pomodoro.resume) savePomo();
+  if (!s.pomodoro.surface) attention(false);
   rebuildTrayMenu();
   pushState();
 }
@@ -356,14 +478,20 @@ const settingsActions = {
   saveSettings: (patch) => (patch && typeof patch === "object" ? (saveSettings(pick(patch, EDITABLE)), OK) : null),
   setCardVisible: ({ type, visible }) => (CARD_TYPES.includes(type) && typeof visible === "boolean" ? (cards.setVisible(type, visible), pushState(), OK) : null),
   resetLayout: () => (cards.resetLayout(), OK),
+  openTour: () => (openTour(), OK),
   setToken: ({ token }) => setManualToken(token),
   refresh: () => (poller.kick(), OK),
 };
 
+const tourActions = {
+  close: () => (tourWin?.close(), OK),
+};
+
+const from = (win, sender) => win && !win.isDestroyed() && sender === win.webContents;
+
 ipcMain.handle("action", async (event, name, payload) => {
   const type = cards?.typeOf(event.sender);
-  const fromSettings = settingsWin && !settingsWin.isDestroyed() && event.sender === settingsWin.webContents;
-  const table = type ? cardActions : fromSettings ? settingsActions : null;
+  const table = type ? cardActions : from(settingsWin, event.sender) ? settingsActions : from(tourWin, event.sender) ? tourActions : null;
   if (!table) return { ok: false, message: "未知来源" };
   const fn = Object.hasOwn(table, name) ? table[name] : null;
   const result = fn ? await fn(payload && typeof payload === "object" ? payload : {}, type) : null;
@@ -417,7 +545,9 @@ app.whenReady().then(async () => {
   nativeTheme.themeSource = "dark";
   settings = createSettingsStore(app.getPath("userData"));
   await loadManualToken();
-  pomoState = pomo.createState(settings.get().pomodoroStats);
+  const initial = settings.get();
+  pomoState = pomo.createState(initial.pomodoroStats);
+  if (initial.pomodoro.resume) pomoState = pomo.restore(pomoState, initial.pomodoroSession, initial.pomodoro, Date.now());
   poller = createPoller({
     client,
     onData(data) {
@@ -440,9 +570,19 @@ app.whenReady().then(async () => {
       poller.setIdle(!cards.isShown());
       rebuildTrayMenu();
     },
+    onGroupDrag(type) {
+      // 前几次整组拖动时提醒一下，之后不再说
+      const n = settings.get().altHints;
+      if (n >= 3) return;
+      settings.update({ altHints: n + 1 });
+      cards.send(type, "event", { type: "toast", message: "拼在一起的卡片会一起走。按住 Alt 拖，只挪这一张。" });
+    },
   });
   cards.start();
   if (!SMOKE) createTray();
+  // 接着上次的番茄：重新挂上定时器和托盘提示
+  applyPomo({ state: pomoState, effects: [] });
+  if (!SMOKE && !initial.tourDone) setTimeout(openTour, 1200);
   powerMonitor.on("resume", () => {
     poller.kick();
     if (pomoState.status === "running") pomoTick();

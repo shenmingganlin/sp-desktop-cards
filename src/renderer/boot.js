@@ -5,6 +5,11 @@
   // 首次画出内容、以及每次折叠状态变化后告诉主进程一声（自检截图要等这个）
   let renderedKey = null;
 
+  window.widget.onEvent((e) => {
+    if (e?.type === "chime") Chime.play(e.kind).catch(() => {});
+    if (e?.type === "toast" && typeof e.message === "string") W.toast(e.message);
+  });
+
   window.widget.onState((next) => {
     W.setState(next);
     W.render();

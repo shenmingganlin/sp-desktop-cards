@@ -76,6 +76,31 @@
 
   let parts = null;
 
+  /**
+   * ■ 结束番茄。设置里打开「结束前确认」时，专注进行中点一下先变成「确认结束？」，3 秒内再点才结束。
+   * 不用系统对话框：嵌入桌面时卡片不可激活，对话框会跑到别的窗口后面。
+   */
+  function stopButton(state, b, cls) {
+    const p = state.pomodoro;
+    const ask = !!p?.cfg?.confirmStop && p.phase === "work" && p.status !== "ready";
+    let armed = null;
+    const node = W.button(cls, b.text, b.title, () => {
+      if (!ask || armed) {
+        clearTimeout(armed);
+        W.act(b.action);
+        return;
+      }
+      node.textContent = "确认结束？";
+      node.classList.add("danger");
+      armed = setTimeout(() => {
+        armed = null;
+        node.textContent = b.text;
+        node.classList.remove("danger");
+      }, 3000);
+    });
+    return node;
+  }
+
   W.define("focus", {
     title: "专注",
     needsView: false, // 连不上 SP 时番茄钟照样能用
@@ -98,7 +123,8 @@
       const btns = W.el("div", "focus-btns");
       for (const key of m.buttons) {
         const b = BTN[key];
-        btns.append(W.button(key === "start" || key === "next" ? "btn primary" : "btn", b.text, b.title, () => W.act(b.action)));
+        const cls = key === "start" || key === "next" ? "btn primary" : "btn";
+        btns.append(key === "stop" ? stopButton(state, b, cls) : W.button(cls, b.text, b.title, () => W.act(b.action)));
       }
       main.append(time, phase, btns);
       const bar = W.el("div", "bar");

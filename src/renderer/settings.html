@@ -38,6 +38,7 @@
         </div>
         <p class="hint">拖顶栏移动，靠近别的卡片会吸附拼在一起，之后整组一起拖；按住 Alt 拖只挪一张。双击顶栏折叠。</p>
         <button class="btn" id="reset-layout">重新排列</button>
+        <button class="btn" id="tour">使用教程</button>
       </section>
 
       <section>
@@ -76,6 +77,23 @@
           <span>专注时让 SP 计时</span><input type="checkbox" data-key="pomodoro.linkTracking" />
           <span class="hint">开始专注时给当前任务计时，休息时停下。</span>
         </label>
+        <label class="field">
+          <span>结束时响提示音</span><input type="checkbox" data-key="pomodoro.sound" />
+          <button class="btn inline" id="chime-test" type="button">试听</button>
+          <span class="hint">系统通知在勿扰或专注助手打开时不响，提示音不受影响。</span>
+        </label>
+        <label class="field">
+          <span>结束时卡片浮到最前</span><input type="checkbox" data-key="pomodoro.surface" />
+          <span class="hint">「专注」卡片浮到所有窗口上面并闪一闪，点一下或开始下一阶段后回到原来的位置。</span>
+        </label>
+        <label class="field">
+          <span>退出或重启后接着走</span><input type="checkbox" data-key="pomodoro.resume" />
+          <span class="hint">关着的时候到点了，打开后直接进入下一阶段，不补发提醒。</span>
+        </label>
+        <label class="field">
+          <span>结束番茄前确认</span><input type="checkbox" data-key="pomodoro.confirmStop" />
+          <span class="hint">专注进行中点 ■ 时，再点一次才结束，防止误点。</span>
+        </label>
       </section>
 
       <section>
@@ -90,6 +108,7 @@
       </section>
     </main>
     <div id="toast" hidden></div>
+    <script src="chime.js"></script>
     <script src="settings.js"></script>
   </body>
 </html>

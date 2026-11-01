@@ -19,6 +19,7 @@ fs.mkdirSync(userData, { recursive: true });
 const card = (x, y, width, height) => ({ visible: true, collapsed: false, bounds: { x, y, width, height } });
 fs.writeFileSync(path.join(userData, "settings.json"), JSON.stringify({
   version: 2,
+  tourDone: true,
   cards: {
     focus: card(40, 40, 320, 132),
     today: card(40, 178, 320, 400),

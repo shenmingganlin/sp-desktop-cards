@@ -24,10 +24,11 @@ const RECREATE_MS = 1500;
 /**
  * settings 是设置存储；page 是 card.html 的路径；onChange 在卡片显示/隐藏后调用（刷新托盘菜单）。
  */
-export function createCards({ settings, preload, page, icon, onChange = () => {} }) {
+export function createCards({ settings, preload, page, icon, onChange = () => {}, onGroupDrag = () => {} }) {
   const wins = new Map(); // type → BrowserWindow
   const last = new Map(); // type → 上次已知的外框，用来算改大小前后的差
   const closing = new Set(); // 主动关掉的卡片，关掉后不要重建
+  const attending = new Set(); // 番茄钟到点时临时浮到最上面的卡片
   let applying = 0; // 正在由这里改位置/大小，期间收到的 move/resize 事件不当作用户操作
   let drag = null;
   let hiddenAll = false;
@@ -114,12 +115,18 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
     const w = wins.get(type);
     if (!usable(w)) return;
     const m = mode();
-    w.setAlwaysOnTop(m === "top", "floating");
+    const up = attending.has(type);
+    w.setAlwaysOnTop(m === "top" || up, "floating");
     if (m === "desktop") {
       // 不可激活：否则按 Win+D 后卡片成了前台窗口，再按一次就还原不了别的窗口
       w.setFocusable(false);
-      desktop.attach(w);
-      if (w.isVisible()) desktop.sink(w);
+      // 挂在桌面下面时系统会把它压回去，置顶不住；浮上来期间先摘下来，回去时再挂上
+      if (up) {
+        desktop.detach(w);
+      } else {
+        desktop.attach(w);
+        if (w.isVisible()) desktop.sink(w);
+      }
     } else {
       desktop.detach(w);
       w.setFocusable(true);
@@ -132,8 +139,8 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
     if (mode() !== "desktop") return;
     // Explorer 重启后桌面窗口换了，要重新挂上去
     reattachTimer = setInterval(() => {
-      for (const [, w] of alive()) {
-        if (!w.isVisible()) continue;
+      for (const [type, w] of alive()) {
+        if (!w.isVisible() || attending.has(type)) continue;
         desktop.attach(w);
         if (!w.isFocused()) desktop.sink(w);
       }
@@ -166,10 +173,15 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
       backgroundColor: "#1f1f1f",
       title: `SP 小窗 · ${CARD_TITLE[type]}`,
       icon,
-      // 卡片常年不在前台，嵌入桌面时还被别的窗口盖着；不关节流的话倒计时和提示条的计时器会停
-      webPreferences: { preload, contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: false, backgroundThrottling: false },
+      // 卡片常年不在前台，嵌入桌面时还被别的窗口盖着；不关节流的话倒计时和提示条的计时器会停。
+      // 番茄钟的提示音由卡片页面放，没点过页面也要能响。
+      webPreferences: {
+        preload, contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: false, backgroundThrottling: false,
+        autoplayPolicy: "no-user-gesture-required",
+      },
     });
     wins.set(type, w);
+    desktop.keepClicks(w);
     w.setMenu(null);
     w.setOpacity(s.opacity);
     applyLimits(type);
@@ -184,7 +196,7 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
       // 嵌入桌面时为了打字临时允许激活过，失去焦点后沉回去
       if (mode() !== "desktop" || !usable(w)) return;
       w.setFocusable(false);
-      desktop.sink(w);
+      if (!attending.has(type)) desktop.sink(w);
     });
     w.on("close", (e) => {
       // Alt+F4 只是隐藏这张卡片
@@ -195,6 +207,7 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
     w.on("closed", () => {
       if (wins.get(type) === w) wins.delete(type);
       last.delete(type);
+      attending.delete(type);
       const intended = closing.delete(type);
       // 不是我们关的（比如嵌入桌面时 Explorer 重启，把挂在它下面的窗口一起销毁了）：过一会儿重建
       if (quitting || intended) return;
@@ -205,7 +218,7 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
     w.once("ready-to-show", () => {
       if (hiddenAll || !usable(w)) return;
       w.showInactive();
-      if (mode() === "desktop") desktop.sink(w);
+      if (mode() === "desktop" && !attending.has(type)) desktop.sink(w);
     });
     w.loadFile(page, { query: { card: type } });
     return w;
@@ -237,6 +250,7 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
     const ids = alone ? new Set([type]) : groupOf(all, type);
     const start = new Map([...ids].map((t) => [t, all.get(t)]));
     drag = {
+      type,
       start,
       others: [...all].filter(([t]) => !ids.has(t)).map(([, r]) => r),
       box: boundingBox([...start.values()]),
@@ -264,9 +278,10 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
   function dragEnd() {
     if (!drag) return;
     clearInterval(drag.timer);
-    const { start, moved } = drag;
+    const { start, moved, type } = drag;
     drag = null;
     if (moved) for (const t of start.keys()) remember(t);
+    if (moved && start.size > 1) onGroupDrag(type);
   }
 
   // ── 折叠 ──
@@ -323,6 +338,7 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
   function hideAll() {
     hiddenAll = true;
     dragEnd();
+    attending.clear();
     for (const [, w] of alive()) w.hide();
     onChange();
   }
@@ -364,6 +380,22 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
     if (!usable(w)) return;
     if (mode() === "desktop") w.setFocusable(true);
     w.focus();
+  }
+
+  /**
+   * 番茄钟到点时让卡片浮到所有窗口上面（不抢焦点），on 为 false 时回到原来的显示方式。
+   * 卡片没开或全部隐藏着时不做什么：靠提示音和系统通知。返回卡片是否真的浮上来了。
+   */
+  function attend(type, on) {
+    const w = wins.get(type);
+    if (on === attending.has(type)) return on;
+    if (on && (hiddenAll || !usable(w) || !w.isVisible())) return false;
+    if (on) attending.add(type);
+    else attending.delete(type);
+    if (!usable(w)) return false;
+    applyMode(type);
+    if (on) w.moveTop();
+    return on;
   }
 
   /** 在卡片上弹出原生菜单。嵌入桌面时同样要临时允许激活，否则点别处菜单不会消失。 */
@@ -422,6 +454,8 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
     dragEnd,
     requestFocus,
     popup,
+    attend,
+    isAttending: (type) => attending.has(type),
     /** 哪张卡片的页面发来的消息；不是卡片返回 null。 */
     typeOf(webContents) {
       for (const [type, w] of alive()) if (w.webContents === webContents) return type;
