@@ -83,6 +83,15 @@ export function createClient({ baseUrl = DEFAULT_BASE_URL, getToken, fetchImpl =
     todayTasks: () => list("/tasks?tagId=TODAY&includeDone=true"),
     allTasks: () => list("/tasks?includeDone=true"),
     tags: () => list("/tags"),
+    projects: () => list("/projects"),
+    // 老版本 SP 没有这个接口：当作没有重复配置，不影响其他卡片
+    repeatCfgs: () => list("/task-repeat-cfgs").catch((error) => {
+      if (error.status === 404) return [];
+      throw error;
+    }),
+    /** fields 只放 SP 允许写的字段；标题里的简写语法（#标签 +项目 @时间）由 SP 解析。 */
+    createTask: (fields) => request("POST", "/tasks", fields),
+    deleteTask: (taskId) => request("DELETE", `/tasks/${id(taskId)}`),
     setDone: (taskId, isDone) => request("PATCH", `/tasks/${id(taskId)}`, { isDone }),
     start: (taskId) => request("POST", `/tasks/${id(taskId)}/start`),
     stop: () => request("POST", "/task-control/stop"),

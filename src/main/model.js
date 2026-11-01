@@ -8,8 +8,8 @@
 
 export const pad2 = (n) => String(n).padStart(2, "0");
 
-const isTimestamp = (v) => typeof v === "number" && Number.isFinite(v) && v > 0;
-const isDay = (v) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v);
+export const isTimestamp = (v) => typeof v === "number" && Number.isFinite(v) && v > 0;
+export const isDay = (v) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v);
 
 /** 本机时间对应的「工作日」：一天从 dayStartHour 点起算。 */
 export function localDay(ms, dayStartHour = 0) {

@@ -1,0 +1,107 @@
+/* cards.css — 各卡片自己的样式。 */
+
+/* ── 专注 ── */
+.focus-task { padding: 8px 12px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.focus-task .hint { color: var(--dim); }
+.focus-main { display: flex; align-items: center; gap: 8px; padding: 2px 8px 0 12px; }
+.focus-time {
+  font: 600 28px/1.1 "Cascadia Mono", Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+}
+.focus-time.work { color: var(--focus); }
+.focus-time.break { color: var(--break); }
+.focus-time.over { color: var(--danger); }
+.focus-time.idle { color: #777; }
+.focus-phase { flex: 1; min-width: 0; font-size: 11px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.focus-btns { display: flex; gap: 4px; flex: none; }
+.focus-btns .btn { padding: 3px 9px; font-size: 12px; }
+.bar { height: 3px; margin: 6px 12px 0; border-radius: 2px; background: #333; overflow: hidden; }
+.bar > div { height: 100%; background: var(--focus); }
+.bar.break > div { background: var(--break); }
+
+/* ── 规划 ── */
+.day { padding: 2px 0 4px; border-top: 1px solid #2a2a2a; }
+.day:first-child { border-top: 0; }
+.day-head { display: flex; align-items: center; gap: 6px; padding: 4px 4px 2px 10px; font-size: 12px; }
+.day-head .rel { font-weight: 600; }
+.day-head .date { color: var(--dim); font-size: 11px; }
+.day-head .left { flex: 1; text-align: right; color: var(--dim); font-size: 11px; }
+.day-head .icon { width: 20px; height: 20px; visibility: hidden; }
+.day:hover .day-head .icon, .day-head .icon.on { visibility: visible; }
+.day.today .rel { color: var(--accent); }
+
+/* ── 日程 ── */
+.chips {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+}
+.chip {
+  max-width: 100%;
+  padding: 1px 8px;
+  border-radius: 10px;
+  background: #333;
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.chip.done { color: var(--dim); text-decoration: line-through; }
+.chip.repeat { background: none; border: 1px dashed #555; color: var(--dim); }
+.timeline { position: relative; margin: 0 6px 8px 42px; cursor: copy; }
+.hour { position: absolute; left: 0; right: 0; border-top: 1px solid #2c2c2c; }
+.hour span { position: absolute; left: -38px; top: -7px; width: 32px; text-align: right; font-size: 10px; color: #777; }
+.block {
+  position: absolute;
+  display: flex;
+  gap: 5px;
+  padding: 2px 5px;
+  border-radius: 4px;
+  border-left: 3px solid var(--focus);
+  background: #24323d;
+  font-size: 11px;
+  overflow: hidden;
+  cursor: default;
+}
+.block .check { width: 12px; height: 12px; margin-top: 1px; }
+.block .text { white-space: normal; line-height: 1.25; }
+.block .meta { display: block; font-size: 10px; }
+.block.current { border-left-color: var(--accent); background: #3a2533; }
+.block.done { opacity: 0.55; }
+.block.done .title { text-decoration: line-through; }
+.block.repeat { background: none; border: 1px dashed #4a5a66; border-left: 3px dashed #4a5a66; color: var(--dim); }
+.block.guess { border-left-style: dotted; }
+.now-line { position: absolute; left: -6px; right: 0; height: 0; border-top: 2px solid var(--accent); pointer-events: none; }
+.now-line::before { content: ""; position: absolute; left: -4px; top: -5px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+.timeline .add { position: absolute; left: 0; right: 0; margin: 0; z-index: 2; cursor: auto; }
+
+/* ── 月历 ── */
+.weekdays, .grid { display: grid; grid-template-columns: repeat(7, 1fr); padding: 0 6px; }
+.weekdays { padding-top: 4px; font-size: 10px; color: #777; text-align: center; }
+.cell {
+  position: relative;
+  height: 34px;
+  margin: 1px;
+  padding-top: 3px;
+  border-radius: 4px;
+  text-align: center;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.cell:hover { background: #2a2a2a; }
+.cell.out { color: #555; }
+.cell.past:not(.today) { color: #888; }
+.cell.today .num { display: inline-block; min-width: 20px; border-radius: 10px; background: var(--accent); color: #fff; }
+.cell.selected { background: #333; box-shadow: inset 0 0 0 1px #555; }
+.dots { display: flex; justify-content: center; gap: 2px; height: 6px; margin-top: 2px; }
+.dots i { width: 4px; height: 4px; border-radius: 50%; background: var(--focus); }
+.dots i.done { background: #666; }
+.dots i.deadline { background: var(--danger); }
+.month-day { margin-top: 4px; border-top: 1px solid var(--line); }
+.month-day .day-head .icon { visibility: visible; }

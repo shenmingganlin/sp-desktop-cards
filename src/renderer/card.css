@@ -1,3 +1,4 @@
+/* card.css — 所有卡片共用的外观：顶栏、列表行、快速新建、提示条。各卡片自己的样式在 cards.css。 */
 :root {
   --bg: #1f1f1f;
   --bg-2: #2a2a2a;
@@ -39,20 +40,33 @@ button {
   background: none;
   border: 0;
   cursor: pointer;
-  -webkit-app-region: no-drag;
 }
+input, select { font: inherit; color: inherit; }
 
-/* ── 顶栏 ── */
-#bar {
+/* ── 顶栏：按住拖动，双击折叠，右键出菜单 ── */
+#head {
   display: flex;
   align-items: center;
   gap: 2px;
-  height: 42px;
-  min-height: 42px;
+  height: 32px;
+  min-height: 32px;
   padding: 0 4px 0 2px;
   background: var(--bg-2);
-  -webkit-app-region: drag;
 }
+#drag {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding-left: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+#title { flex: none; font-weight: 600; }
+#sub { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 11px; color: var(--dim); }
+#sub.warn { color: var(--warn); }
+#tools { display: flex; gap: 2px; flex: none; }
 
 .icon {
   width: 24px;
@@ -63,32 +77,16 @@ button {
   flex: none;
 }
 .icon:hover { background: #3a3a3a; color: var(--text); }
+.icon.text { width: auto; padding: 0 6px; font-size: 11px; }
+.icon.on { color: var(--accent); }
 #collapse { font-size: 14px; }
 
-#now { flex: 1; min-width: 0; padding-left: 2px; }
-#now-title, #now-sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-#now-title { font-size: 14px; }
-#now-sub { font-size: 11px; color: var(--dim); }
-#now-sub:empty { display: none; }
-#now-sub.warn { color: var(--warn); }
-
-#now-time {
-  flex: none;
-  padding: 0 6px;
-  font: 600 17px/1 "Cascadia Mono", Consolas, monospace;
-  font-variant-numeric: tabular-nums;
-}
-#now-time.focus { color: var(--focus); }
-#now-time.break { color: var(--break); }
-#now-time.over { color: var(--danger); }
-
 /* ── 主体 ── */
-#body { flex: 1; overflow-y: auto; min-height: 0; }
-body.collapsed #body, body.collapsed #stats { display: none; }
-body.collapsed { border-color: transparent; }
-
+#body { flex: 1; overflow-y: auto; min-height: 0; position: relative; }
+body.collapsed #body, body.collapsed #foot, body.collapsed #banner { display: none; }
 #body::-webkit-scrollbar { width: 6px; }
 #body::-webkit-scrollbar-thumb { background: #444; border-radius: 3px; }
+#body.stale { opacity: 0.55; }
 
 #banner {
   margin: 6px 8px 0;
@@ -98,7 +96,6 @@ body.collapsed { border-color: transparent; }
   color: var(--warn);
   font-size: 12px;
 }
-#lists.stale { opacity: 0.55; }
 
 .group { padding: 4px 0 2px; }
 .group-head {
@@ -111,6 +108,7 @@ body.collapsed { border-color: transparent; }
 }
 .group.overdue .group-head { color: var(--danger); }
 
+/* ── 任务行 ── */
 .row {
   display: flex;
   align-items: center;
@@ -127,6 +125,9 @@ body.collapsed { border-color: transparent; }
 .row.overdue .meta { color: var(--danger); }
 .row.done .title { color: var(--dim); text-decoration: line-through; }
 .row.pending { opacity: 0.6; }
+.row.repeat { color: var(--dim); }
+.row.deadline .meta, .row.deadline .mark { color: var(--danger); }
+.row.deadline .mark { font-weight: 700; font-size: 13px; }
 
 .check {
   flex: none;
@@ -137,8 +138,8 @@ body.collapsed { border-color: transparent; }
   position: relative;
 }
 .check:hover { border-color: var(--accent); }
-.row.done .check { background: var(--accent); border-color: var(--accent); }
-.row.done .check::after {
+.done > .check { background: var(--accent); border-color: var(--accent); }
+.done > .check::after {
   content: "";
   position: absolute;
   left: 4px;
@@ -149,6 +150,8 @@ body.collapsed { border-color: transparent; }
   border-width: 0 1.5px 1.5px 0;
   transform: rotate(45deg);
 }
+/* 重复任务的投影、截止日：前面放一个符号代替勾选框 */
+.mark { flex: none; width: 15px; text-align: center; font-size: 11px; color: #777; }
 
 .text { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .parent { color: var(--dim); }
@@ -169,6 +172,7 @@ body.collapsed { border-color: transparent; }
 
 .empty { padding: 24px 16px; text-align: center; color: var(--dim); }
 .empty p { margin: 0 0 10px; }
+.none { padding: 0 10px 4px 31px; font-size: 11px; color: #666; }
 
 .btn {
   padding: 3px 12px;
@@ -176,11 +180,37 @@ body.collapsed { border-color: transparent; }
   background: #3a3a3a;
 }
 .btn:hover { background: #4a4a4a; }
+.btn.primary { background: var(--accent); color: #fff; }
+.btn.primary:hover { background: #ff6ba1; }
 .link { color: var(--focus); font-size: 11px; padding: 0 2px; }
 .link:hover { text-decoration: underline; }
 
+/* ── 快速新建 ── */
+.add {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 8px 4px;
+  padding: 2px 6px;
+  border: 1px solid #444;
+  border-radius: 4px;
+  background: var(--bg);
+}
+.add:focus-within { border-color: var(--accent); }
+.add .when { flex: none; font-size: 11px; color: var(--dim); }
+.add input {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 0;
+  border: 0;
+  outline: 0;
+  background: none;
+  user-select: text;
+}
+.add input::placeholder { color: #666; }
+
 /* ── 底栏 ── */
-#stats {
+#foot {
   flex: none;
   padding: 5px 10px;
   border-top: 1px solid var(--line);
@@ -190,33 +220,7 @@ body.collapsed { border-color: transparent; }
   overflow: hidden;
   text-overflow: ellipsis;
 }
-#stats:empty { display: none; }
-
-/* ── 设置 ── */
-#settings {
-  margin: 6px 8px;
-  padding: 8px 10px 10px;
-  border-radius: 6px;
-  background: var(--bg-2);
-  user-select: text;
-}
-#settings h2 { margin: 0 0 6px; font-size: 13px; }
-.field { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 6px 0; }
-.field-label { flex: 1; min-width: 100px; }
-.hint { flex-basis: 100%; font-size: 11px; color: var(--dim); }
-#settings input[type="number"] { width: 56px; }
-#settings input[type="range"] { width: 110px; }
-#settings input[type="number"], #settings input[type="password"] {
-  padding: 2px 6px;
-  border: 1px solid #444;
-  border-radius: 4px;
-  background: var(--bg);
-  color: var(--text);
-  font: inherit;
-}
-.token-row { display: flex; gap: 6px; margin: 4px 0; }
-.token-row input { flex: 1; min-width: 0; }
-#settings > .btn:last-child { margin-top: 6px; }
+#foot:empty { display: none; }
 
 /* ── 提示条 ── */
 #toast {
@@ -233,6 +237,7 @@ body.collapsed { border-color: transparent; }
   background: #3a3a3a;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
   font-size: 12px;
+  z-index: 10;
 }
 #toast span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-body.collapsed #toast { bottom: auto; top: 2px; left: 120px; right: 4px; padding: 3px 8px; }
+body.collapsed #toast { bottom: auto; top: 2px; left: 90px; right: 4px; padding: 3px 8px; }

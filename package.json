@@ -1,8 +1,8 @@
 {
   "name": "sp-today-widget",
   "productName": "SP 今日小窗",
-  "version": "0.1.0",
-  "description": "Super Productivity 的置顶桌面小窗：今日任务、当前计时与番茄钟、逾期提醒、今日统计。",
+  "version": "0.2.0",
+  "description": "Super Productivity 的桌面卡片：专注与番茄钟、今日、规划、日程、月历，卡片可拼接吸附，可置顶或嵌入桌面。",
   "main": "src/main/main.js",
   "type": "module",
   "license": "MIT",
@@ -13,6 +13,7 @@
     "dist": "node --require ./scripts/copyfile-fallback.cjs node_modules/electron-builder/cli.js --win",
     "smoke": "node scripts/smoke.mjs",
     "ui-check": "node scripts/ui-check.mjs",
+    "desktop-check": "node scripts/desktop-check.mjs",
     "icons": "python scripts/icons.py"
   },
   "devDependencies": {
@@ -60,6 +61,12 @@
       "shortcutName": "SP 今日小窗",
       "uninstallDisplayName": "SP 今日小窗",
       "artifactName": "sp-today-widget-${version}-setup.${ext}"
-    }
+    },
+    "asarUnpack": [
+      "node_modules/@koromix/**"
+    ]
+  },
+  "dependencies": {
+    "koffi": "^3.3.6"
   }
 }

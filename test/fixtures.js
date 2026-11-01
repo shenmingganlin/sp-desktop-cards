@@ -56,6 +56,24 @@ export function sampleData(base = NOW) {
     task({ id: "deadline", title: "报销", deadlineDay: day(-1) }),
     task({ id: "later", title: "下周的事", dueDay: day(7) }),
     task({ id: "unplanned", title: "没排期的", timeEstimate: 99 * MIN }),
+    // SP 规划表里带时间的任务只存 dueWithTime
+    task({ id: "dentist", title: "看牙医", dueWithTime: at(15, 0, 1), timeEstimate: 60 * MIN }),
+    task({ id: "rent", title: "交房租", deadlineDay: day(3) }),
+  ];
+  const repeat = (fields) => ({
+    repeatEvery: 1,
+    startDate: "2026-01-01",
+    projectId: "work",
+    isPaused: false,
+    monday: false, tuesday: false, wednesday: false, thursday: false, friday: false, saturday: false, sunday: false,
+    ...fields,
+  });
+  const repeatCfgs = [
+    repeat({ id: "rc-weekly", title: "周会", repeatCycle: "WEEKLY", monday: true, wednesday: true, startTime: "14:00", defaultEstimate: 60 * MIN, lastTaskCreationDay: day(-1) }),
+    // 今天的已经生成过（用户删了也一样），从明天起才投影
+    repeat({ id: "rc-daily", title: "读书", repeatCycle: "DAILY", defaultEstimate: 30 * MIN, lastTaskCreationDay: TODAY }),
+    // 项目归档后 GET /projects 不再返回它，SP 也不再生成这条
+    repeat({ id: "rc-archived", title: "旧项目的日报", repeatCycle: "DAILY", projectId: "old-project" }),
   ];
   // SP 的今日筛选只看 dueDay/dueWithTime；子任务没排期就不在里面。
   const todayTasks = tasks.filter((t) => t.dueDay === TODAY);
@@ -63,6 +81,8 @@ export function sampleData(base = NOW) {
     allTasks: tasks,
     todayTasks,
     tags: [{ id: "TODAY", title: "Today", taskIds: ["report", "parent", "finished", "standup", "review", "early"] }],
+    projects: [{ id: "INBOX_PROJECT", title: "收件箱" }, { id: "work", title: "工作" }],
+    repeatCfgs,
     current: null,
     focus: { mode: "Countdown", cycle: 1, isSessionDone: false, timer: null },
     now: base,

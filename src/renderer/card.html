@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:" />
+    <title>SP 小窗</title>
+    <link rel="stylesheet" href="card.css" />
+    <link rel="stylesheet" href="cards.css" />
+  </head>
+  <body>
+    <header id="head">
+      <button id="collapse" class="icon" title="折叠/展开">▾</button>
+      <div id="drag">
+        <span id="title"></span>
+        <span id="sub"></span>
+      </div>
+      <div id="tools"></div>
+      <button id="menu" class="icon" title="菜单">⋯</button>
+    </header>
+    <div id="banner" hidden></div>
+    <main id="body"></main>
+    <footer id="foot"></footer>
+    <div id="toast" hidden></div>
+    <script src="card.js"></script>
+    <script src="cards/focus.js"></script>
+    <script src="cards/today.js"></script>
+    <script src="cards/planner.js"></script>
+    <script src="cards/schedule.js"></script>
+    <script src="cards/month.js"></script>
+    <script src="boot.js"></script>
+  </body>
+</html>

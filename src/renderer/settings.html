@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:" />
+    <title>SP 今日小窗 · 设置</title>
+    <link rel="stylesheet" href="settings.css" />
+  </head>
+  <body>
+    <main>
+      <section>
+        <h2>显示</h2>
+        <label class="field">
+          <span>显示方式</span>
+          <select data-key="mode">
+            <option value="top">置顶</option>
+            <option value="normal">普通窗口</option>
+            <option value="desktop">嵌入桌面</option>
+          </select>
+          <span class="hint" id="mode-hint">嵌入桌面：卡片贴在桌面图标那一层，按 Win+D 也不会被收起，其他窗口会盖住它。</span>
+        </label>
+        <label class="field"><span>锁定位置和大小</span><input type="checkbox" data-key="locked" /></label>
+        <label class="field"><span>不透明度</span><input type="range" min="30" max="100" step="5" data-key="opacity" data-kind="pct" /><output id="opacity-out"></output></label>
+        <label class="field">
+          <span>开机启动</span><input type="checkbox" data-key="openAtLogin" />
+          <span class="hint">只对安装版生效。</span>
+        </label>
+      </section>
+
+      <section>
+        <h2>卡片</h2>
+        <div class="cards">
+          <label><input type="checkbox" data-card="focus" />专注</label>
+          <label><input type="checkbox" data-card="today" />今日</label>
+          <label><input type="checkbox" data-card="planner" />规划</label>
+          <label><input type="checkbox" data-card="schedule" />日程</label>
+          <label><input type="checkbox" data-card="month" />月历</label>
+        </div>
+        <p class="hint">拖顶栏移动，靠近别的卡片会吸附拼在一起，之后整组一起拖；按住 Alt 拖只挪一张。双击顶栏折叠。</p>
+        <button class="btn" id="reset-layout">重新排列</button>
+      </section>
+
+      <section>
+        <h2>任务</h2>
+        <label class="field"><span>已完成的任务</span><select data-key="showDone" data-kind="bool"><option value="false">收起</option><option value="true">显示</option></select></label>
+        <label class="field">
+          <span>提前几分钟高亮</span><input type="number" min="0" max="240" data-key="upcomingMinutes" data-kind="int" />
+          <span class="hint">带具体时间的任务，开始前这么多分钟变成橙色。0 表示不高亮。</span>
+        </label>
+        <label class="field">
+          <span>一天从几点开始</span><input type="number" min="0" max="23" data-key="dayStartHour" data-kind="int" />
+          <span class="hint">和 SP「下一天的开始时间」保持一致。</span>
+        </label>
+        <label class="field"><span>规划显示几天</span><input type="number" min="3" max="14" data-key="plannerDays" data-kind="int" /></label>
+        <label class="field">
+          <span>日程时间范围</span>
+          <input type="number" min="0" max="23" data-key="scheduleStartHour" data-kind="int" />
+          <span class="to">到</span>
+          <input type="number" min="1" max="24" data-key="scheduleEndHour" data-kind="int" />
+          <span class="to">点</span>
+        </label>
+        <label class="field">
+          <span>新建任务放进</span><select data-key="quickAddProjectId" id="project"></select>
+          <span class="hint">输入时可以用 SP 的简写（#标签、+项目 等），由 SP 解析。</span>
+        </label>
+      </section>
+
+      <section>
+        <h2>番茄钟</h2>
+        <label class="field"><span>专注</span><input type="number" min="1" max="180" data-key="pomodoro.workMin" data-kind="int" /><span class="to">分钟</span></label>
+        <label class="field"><span>短休息</span><input type="number" min="1" max="60" data-key="pomodoro.shortMin" data-kind="int" /><span class="to">分钟</span></label>
+        <label class="field"><span>长休息</span><input type="number" min="1" max="120" data-key="pomodoro.longMin" data-kind="int" /><span class="to">分钟</span></label>
+        <label class="field"><span>每几个专注后长休息</span><input type="number" min="1" max="12" data-key="pomodoro.longEvery" data-kind="int" /></label>
+        <label class="field"><span>阶段结束后自动开始下一个</span><input type="checkbox" data-key="pomodoro.autoNext" /></label>
+        <label class="field">
+          <span>专注时让 SP 计时</span><input type="checkbox" data-key="pomodoro.linkTracking" />
+          <span class="hint">开始专注时给当前任务计时，休息时停下。</span>
+        </label>
+      </section>
+
+      <section>
+        <h2>连接</h2>
+        <p id="conn"></p>
+        <div class="token-row">
+          <input type="password" id="token" placeholder="32 位令牌，留空表示自动读取" autocomplete="off" />
+          <button class="btn" id="token-save">保存</button>
+        </div>
+        <p class="hint" id="token-state"></p>
+        <button class="btn" id="refresh">重新连接</button>
+      </section>
+    </main>
+    <div id="toast" hidden></div>
+    <script src="settings.js"></script>
+  </body>
+</html>

@@ -3,16 +3,26 @@
 
 import http from "node:http";
 
+const pad2 = (n) => String(n).padStart(2, "0");
+const localDay = (ms) => {
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+};
+
 export function startFakeSp({ token = "A".repeat(32), data, port = 0, host = "127.0.0.1" } = {}) {
   const state = {
     tasks: structuredClone(data.allTasks),
     todayIds: new Set(data.todayTasks.map((t) => t.id)),
     tags: structuredClone(data.tags),
+    projects: structuredClone(data.projects || [{ id: "INBOX_PROJECT", title: "Inbox" }]),
+    repeatCfgs: structuredClone(data.repeatCfgs || []),
     current: data.current ? data.current.id : null,
     focus: structuredClone(data.focus),
     calls: [],
+    bodies: [], // 写操作收到的请求体
     failNext: null, // { status, code } 让下一个请求失败
     down: false,
+    seq: 0,
   };
   const find = (id) => state.tasks.find((t) => t.id === id);
   const send = (res, status, body) => {
@@ -21,6 +31,9 @@ export function startFakeSp({ token = "A".repeat(32), data, port = 0, host = "12
   };
   const ok = (res, d, status = 200) => send(res, status, { ok: true, data: d });
   const fail = (res, status, code, message = code) => send(res, status, { ok: false, error: { code, message } });
+  // SP 的今日判定：dueWithTime 优先，否则看 dueDay。「今天」按测试数据的 now 算，单元测试不受真实日期影响。
+  const today = localDay(data.now ?? Date.now());
+  const isToday = (t) => (t.dueWithTime ? localDay(t.dueWithTime) === today : t.dueDay === today);
 
   const server = http.createServer(async (req, res) => {
     if (state.down) return req.socket.destroy();
@@ -28,7 +41,8 @@ export function startFakeSp({ token = "A".repeat(32), data, port = 0, host = "12
     state.calls.push(`${req.method} ${url.pathname}${url.search}`);
     if (req.headers.origin && req.headers.origin !== "null") return fail(res, 403, "FORBIDDEN");
     if (req.headers.authorization !== `Bearer ${token}`) return fail(res, 401, "UNAUTHORIZED");
-    if (state.failNext) {
+    // failNext.match（如 "PATCH /tasks"）：只让这类请求失败，免得被后台轮询先用掉
+    if (state.failNext && (!state.failNext.match || `${req.method} ${url.pathname}`.startsWith(state.failNext.match))) {
       const f = state.failNext;
       state.failNext = null;
       return fail(res, f.status, f.code);
@@ -38,6 +52,7 @@ export function startFakeSp({ token = "A".repeat(32), data, port = 0, host = "12
       let raw = "";
       for await (const chunk of req) raw += chunk;
       body = raw ? JSON.parse(raw) : {};
+      state.bodies.push({ method: req.method, path: url.pathname, body });
     }
     const p = url.pathname;
     const parts = p.split("/").filter(Boolean);
@@ -45,15 +60,37 @@ export function startFakeSp({ token = "A".repeat(32), data, port = 0, host = "12
     if (req.method === "GET" && p === "/task-control/current") return ok(res, state.current ? find(state.current) : null);
     if (req.method === "GET" && p === "/focus") return ok(res, state.focus);
     if (req.method === "GET" && p === "/tags") return ok(res, state.tags);
+    if (req.method === "GET" && p === "/projects") return ok(res, state.projects);
+    if (req.method === "GET" && p === "/task-repeat-cfgs") return ok(res, state.repeatCfgs);
     if (req.method === "POST" && p === "/task-control/stop") {
       state.current = null;
       return ok(res, { currentTaskId: null });
     }
     if (req.method === "GET" && p === "/tasks") {
       let list = state.tasks;
-      if (url.searchParams.get("tagId") === "TODAY") list = list.filter((t) => state.todayIds.has(t.id));
+      if (url.searchParams.get("tagId") === "TODAY") list = list.filter((t) => state.todayIds.has(t.id) || isToday(t));
       if (url.searchParams.get("includeDone") !== "true") list = list.filter((t) => !t.isDone);
       return ok(res, list);
+    }
+    if (req.method === "POST" && p === "/tasks") {
+      if (typeof body.title !== "string" || !body.title.trim()) return fail(res, 400, "INVALID_INPUT");
+      state.seq += 1;
+      const t = {
+        id: `new${state.seq}`,
+        title: body.title.trim(),
+        isDone: false,
+        projectId: body.projectId || "INBOX_PROJECT",
+        tagIds: body.tagIds || [],
+        subTaskIds: [],
+        timeEstimate: 0,
+        timeSpent: 0,
+        timeSpentOnDay: {},
+        created: Date.now(),
+        dueDay: body.dueDay,
+        dueWithTime: body.dueWithTime,
+      };
+      state.tasks.push(t);
+      return ok(res, t, 201);
     }
     if (parts[0] === "tasks" && parts[1]) {
       const t = find(decodeURIComponent(parts[1]));
@@ -62,6 +99,12 @@ export function startFakeSp({ token = "A".repeat(32), data, port = 0, host = "12
         if (typeof body.isDone === "boolean") t.isDone = body.isDone;
         if (t.isDone && state.current === t.id) state.current = null;
         return ok(res, t);
+      }
+      if (req.method === "DELETE" && parts.length === 2) {
+        state.tasks = state.tasks.filter((x) => x.id !== t.id && x.parentId !== t.id);
+        state.todayIds.delete(t.id);
+        if (state.current === t.id) state.current = null;
+        return ok(res, { deleted: true, id: t.id });
       }
       if (req.method === "POST" && parts[2] === "start") {
         state.current = t.id;
