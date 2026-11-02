@@ -113,9 +113,95 @@ export function followResize(rects, id, before, after) {
   return moves;
 }
 
+// ── 拉边改大小 ──
+
+/**
+ * 拉边改大小之后卡片应该多大。start 是按下鼠标时的外框，dx/dy 是光标从按下到现在的位移，
+ * edges 是要动的边（"n" "s" "e" "w"，角上是两个字母），min 是最小尺寸。
+ * snap 为真时，正在动的那条边会吸到：别的卡片同一条边（边界共线）、隔一个 GAP 相邻的位置，
+ * 以及显示器工作区的边。按住 Alt 传 snap=false 就不吸。
+ */
+export function resizeRect(start, edges, dx, dy, min, { others = [], workAreas = [], snap = true } = {}) {
+  const e = String(edges ?? "");
+  let left = start.x;
+  let top = start.y;
+  let right = start.x + start.width;
+  let bottom = start.y + start.height;
+  // 先按光标挪动正在拖的那几条边，再夹住最小尺寸（另一条边不动，所以夹的时候往被拖的方向退）
+  if (e.includes("w")) left = Math.min(left + dx, right - min.width);
+  else if (e.includes("e")) right = Math.max(right + dx, left + min.width);
+  if (e.includes("n")) top = Math.min(top + dy, bottom - min.height);
+  else if (e.includes("s")) bottom = Math.max(bottom + dy, top + min.height);
+
+  if (snap) {
+    const has = (k) => e.includes(k);
+    const xs = []; // 竖直边的候选横坐标
+    const ys = []; // 水平边的候选纵坐标
+    for (const o of others) {
+      const oRight = o.x + o.width;
+      const oBottom = o.y + o.height;
+      const sideBySide = overlap(top, bottom, o.y, oBottom) > -SNAP; // 竖向挨着：左右并排
+      const stacked = overlap(left, right, o.x, oRight) > -SNAP; // 横向挨着：上下同一列
+      // 吸到「隔一个 GAP 挨着」的位置
+      if (sideBySide) {
+        if (has("e")) xs.push(o.x - GAP);
+        if (has("w")) xs.push(oRight + GAP);
+      }
+      if (stacked) {
+        if (has("s")) ys.push(o.y - GAP);
+        if (has("n")) ys.push(oBottom + GAP);
+      }
+      // 边界共线：同一列里右边对右边、左边对左边；同一行里下边对下边、上边对上边
+      if (overlap(left, right, o.x, oRight) > 0) {
+        if (has("e")) xs.push(oRight);
+        if (has("w")) xs.push(o.x);
+      }
+      if (overlap(top, bottom, o.y, oBottom) > 0) {
+        if (has("s")) ys.push(oBottom);
+        if (has("n")) ys.push(o.y);
+      }
+    }
+    for (const a of workAreas) {
+      const aRight = a.x + a.width;
+      const aBottom = a.y + a.height;
+      const inX = overlap(left, right, a.x, aRight) > 0;
+      const inY = overlap(top, bottom, a.y, aBottom) > 0;
+      if (inX && has("e")) xs.push(aRight);
+      if (inX && has("w")) xs.push(a.x);
+      if (inY && has("s")) ys.push(aBottom);
+      if (inY && has("n")) ys.push(a.y);
+    }
+    const near = (v, list) => {
+      let best = null;
+      for (const c of list) {
+        const d = c - v;
+        if (Math.abs(d) <= SNAP && (best === null || Math.abs(d) < Math.abs(best))) best = d;
+      }
+      return best;
+    };
+    if (has("e")) right += near(right, xs) ?? 0;
+    if (has("w")) left += near(left, xs) ?? 0;
+    if (has("s")) bottom += near(bottom, ys) ?? 0;
+    if (has("n")) top += near(top, ys) ?? 0;
+    // 吸过去有可能小过最小尺寸，再夹一次
+    if (has("e") || has("w")) {
+      if (min.width - (right - left) > 0) {
+        if (has("w")) left = right - min.width;
+        else right = left + min.width;
+      }
+    }
+    if (has("n") || has("s")) {
+      if (min.height - (bottom - top) > 0) {
+        if (has("n")) top = bottom - min.height;
+        else bottom = top + min.height;
+      }
+    }
+  }
+  return { x: Math.round(left), y: Math.round(top), width: Math.round(right - left), height: Math.round(bottom - top) };
+}
+
 /** 保存的位置还在某个显示器上吗（拔掉显示器、改分辨率后可能跑到屏幕外）。 */
-export function isOnScreen(r, workAreas) {
-  return workAreas.some((a) => r.x < right(a) - 40 && right(r) > a.x + 40 && r.y >= a.y - 10 && r.y < bottom(a) - 30);
+export function isOnScreen(r, workAreas) {  return workAreas.some((a) => r.x < right(a) - 40 && right(r) > a.x + 40 && r.y >= a.y - 10 && r.y < bottom(a) - 30);
 }
 
 /**

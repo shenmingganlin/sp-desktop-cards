@@ -7,7 +7,7 @@
 import { BrowserWindow, screen } from "electron";
 import * as desktop from "./desktop.js";
 import { CARD_SIZE, CARD_TYPES } from "./settings.js";
-import { boundingBox, defaultSpot, followResize, groupOf, isOnScreen, snapMove } from "./snap.js";
+import { boundingBox, defaultSpot, followResize, groupOf, isOnScreen, resizeRect, snapMove } from "./snap.js";
 
 export const HEADER_HEIGHT = 34;
 export const CARD_TITLE = { focus: "专注", today: "今日", planner: "规划", schedule: "日程", month: "月历" };
@@ -91,12 +91,12 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
     settings.updateCard(type, { bounds: { ...b, height } });
   }
 
-  function shiftBy(moves) {
+  function shiftBy(moves, persist = true) {
     for (const [t, { dx, dy }] of moves) {
       if (!usable(wins.get(t))) continue;
       const b = boundsOf(t);
       place(t, { ...b, x: b.x + dx, y: b.y + dy });
-      remember(t);
+      if (persist) remember(t);
     }
   }
 
@@ -179,14 +179,15 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
     const w = new BrowserWindow({
       ...bounds,
       frame: false,
-      resizable: !s.locked,
+      // 大小由页面上的把手自己拉（见 resizeStart），系统的边框在缩放比例不对时根本抓不住
+      resizable: false,
       minimizable: false,
       maximizable: false,
       fullscreenable: false,
       skipTaskbar: true,
       show: false,
       backgroundColor: "#1f1f1f",
-      title: `SP 小窗 · ${CARD_TITLE[type]}`,
+      title: `SP 桌面卡片 · ${CARD_TITLE[type]}`,
       icon,
       // 卡片常年不在前台，嵌入桌面时还被别的窗口盖着；不关节流的话倒计时和提示条的计时器会停。
       // 番茄钟的提示音由卡片页面放，没点过页面也要能响。
@@ -296,6 +297,46 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
     drag = null;
     if (moved) for (const t of start.keys()) remember(t);
     if (moved && start.size > 1) onGroupDrag(type);
+  }
+
+  // ── 拉边改大小 ──
+  // 不用系统自带的边框：缩放比例不是 100% 时它只有几个像素、还偏到窗口外面去，左右两边常常整条抓不到。
+  // 改成页面自己画八个把手（card.js 的 .hnd），按住之后和拖动一样，这里每 16ms 读一次光标算尺寸。
+  // 正在动的那条边会吸到别的卡片共线的边或隔一个 GAP 相邻的位置，按住 Alt 不吸。
+  let resizing = null;
+
+  function resizeStart(type, edges) {
+    if (resizing || drag || settings.get().locked) return;
+    const w = wins.get(type);
+    if (!usable(w) || !w.isVisible()) return;
+    let e = String(edges ?? "").replace(/[^nsew]/g, "");
+    if (settings.get().cards[type].collapsed) e = e.replace(/[ns]/g, ""); // 折叠时只有一条顶栏高，上下不给拉
+    if (!e) return;
+    resizing = { type, edges: e, start: boundsOf(type), cursor: screen.getCursorScreenPoint(), timer: setInterval(resizeTick, 16) };
+  }
+
+  function resizeTick() {
+    if (!resizing) return;
+    if (desktop.primaryButtonDown() === false) return resizeEnd(); // 页面没收到松开事件时兜底
+    const p = screen.getCursorScreenPoint();
+    const before = last.get(resizing.type) || resizing.start;
+    const others = [...rects(resizing.type)];
+    const next = resizeRect(resizing.start, resizing.edges, p.x - resizing.cursor.x, p.y - resizing.cursor.y, MIN_SIZE[resizing.type], {
+      others: others.map(([, r]) => r),
+      workAreas: workAreas(),
+      snap: !desktop.altDown(),
+    });
+    if (before.x === next.x && before.y === next.y && before.width === next.width && before.height === next.height) return;
+    place(resizing.type, next);
+    // 拼在这条边上的卡片跟着让开或靠拢（一起挪，别每帧写设置）
+    shiftBy(followResize(new Map(others), resizing.type, before, next), false);
+  }
+
+  function resizeEnd() {
+    if (!resizing) return;
+    clearInterval(resizing.timer);
+    resizing = null;
+    for (const [type] of alive()) remember(type);
   }
 
   // ── 折叠 ──
@@ -443,6 +484,7 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
     quit() {
       quitting = true;
       dragEnd();
+      resizeEnd();
       clearInterval(reattachTimer);
       clearInterval(inputTimer);
       for (const [type] of alive()) remember(type);
@@ -454,8 +496,11 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
     },
     effectiveMode: mode,
     setLocked(locked) {
-      if (locked) dragEnd();
-      for (const [, w] of alive()) w.setResizable(!locked);
+      if (locked) {
+        dragEnd();
+        resizeEnd();
+      }
+      // 窗口一直是 resizable: false，锁定时由页面把把手藏起来（它从设置里看到 locked）
     },
     /** 弹原生对话框时临时让卡片别置顶（对话框没有置顶，被卡片挡住就点不到了）。 */
     holdTop(on) {
@@ -473,6 +518,8 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
     resetLayout,
     dragStart,
     dragEnd,
+    resizeStart,
+    resizeEnd,
     requestFocus,
     popup,
     attend,

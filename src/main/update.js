@@ -1,15 +1,27 @@
 // update.js — 检查更新：去 GitHub 看最新 Release，比版本号，挑安装包，下载到本地。
 // 只做纯粹的取数和文件活儿，弹窗和窗口由 main.js 负责，方便单测。
+//
+// 不用 api.github.com：没登录的接口每个 IP 每小时只有 60 次，共享出口（代理、校园网、运营商 NAT）
+// 经常很早就用光，回的是 403「API rate limit exceeded」，用户看到的却只是「连不上」。
+// 改成看网页：/releases/latest 会 302 到 /releases/tag/vX.Y.Z，网页没有这个限流。
+// 安装包的地址是我们自己的命名规则，按 tag 拼出来，再用 HEAD 确认在不在、多大。
 
 import fs from "node:fs";
 import path from "node:path";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 
-export const REPO = "shenmingganlin/sp-today-widget";
-export const DEFAULT_API = `https://api.github.com/repos/${REPO}/releases/latest`;
+export const REPO = "shenmingganlin/sp-desktop-cards";
+// 老用户还在读旧仓库（0.2.2 及以前查的是这里）：那边停更，只留一个升级指路牌。
+// 新版查不到新仓库时就回头问它，拿到「去新仓库」的版本号也提示升级，升上来之后就只认新仓库了。
+export const LEGACY_REPO = "shenmingganlin/sp-today-widget";
+const RELEASES = `https://github.com/${REPO}/releases`;
+export const LATEST_URL = `${RELEASES}/latest`;
+export const legacyLatestUrl = () => `https://github.com/${LEGACY_REPO}/releases/latest`;
+export const DOWNLOAD_BASE = `${RELEASES}/download`;
 export const CHECK_TIMEOUT_MS = 10_000;
 const DOWNLOAD_TIMEOUT_MS = 30 * 60_000;
+const UA = "sp-desktop-cards";
 
 /** "v0.2.10" → [0, 2, 10]；认不出来返回 null。 */
 export function parseVersion(text) {
@@ -27,49 +39,76 @@ export function isNewer(latest, current) {
 }
 
 /** 安装包和免安装包的文件名。改 npm 的 artifactName 时这里要一起改。 */
-export const artifactName = (version, kind) => `sp-today-widget-${version}-${kind === "setup" ? "setup.exe" : "win-x64.zip"}`;
+export const artifactName = (version, kind) => `sp-desktop-cards-${version}-${kind === "setup" ? "setup.exe" : "win-x64.zip"}`;
 
-/** 从 Release 里按文件名找资源；找不到的给 null。 */
-export function pickAssets(release, version) {
-  const assets = Array.isArray(release?.assets) ? release.assets : [];
-  const find = (kind) => {
-    const name = artifactName(version, kind);
-    const hit = assets.find((a) => a && a.name === name && typeof a.browser_download_url === "string");
-    return hit ? { name, url: hit.browser_download_url, size: Number(hit.size) || 0 } : null;
-  };
-  return { setup: find("setup"), zip: find("zip") };
+/** 从跳转后的地址里抠出 tag：.../releases/tag/v0.2.2 → v0.2.2 */
+export function tagFromUrl(url) {
+  const m = /\/(?:releases\/)?tag\/([^/?#]+)/.exec(String(url ?? ""));
+  return m ? decodeURIComponent(m[1]) : null;
 }
 
 /**
- * 查最新 Release。没网、被限流、格式不对都返回 null，不抛异常。
- * api 可换（测试用假服务）。
+ * 文件在不在、多大。404/410 返回 null（这次发布就是没有这个文件），
+ * 其他失败返回 0（不知道，先去下载，真下不到再说）。
  */
-export async function fetchLatest({ fetchImpl = fetch, api = DEFAULT_API } = {}) {
-  let res;
+async function headSize(url, fetchImpl) {
   try {
-    res = await fetchImpl(api, {
-      headers: { accept: "application/vnd.github+json", "user-agent": "sp-today-widget" },
+    const res = await fetchImpl(url, {
+      method: "HEAD",
+      redirect: "follow",
+      headers: { "user-agent": UA },
       signal: AbortSignal.timeout(CHECK_TIMEOUT_MS),
     });
+    if (!res) return 0;
+    if (res.status === 404 || res.status === 410) return null;
+    if (!res.ok) return 0;
+    return Number(res.headers.get("content-length")) || 0;
   } catch {
-    return null;
+    return 0;
   }
-  if (!res || !res.ok) return null;
-  let release;
+}
+
+/**
+ * 查最新 Release。成功返回 { version, tag, page, setup, zip }，setup/zip 是 { name, url, size } 或 null。
+ * 失败不抛异常，返回 { error: "network" | "timeout" | "http" | "none" | "format", status? }，由调用方决定怎么说。
+ * 三个地址参数都是给测试用的，正常不用传。
+ */
+export async function fetchLatest({ fetchImpl = fetch, latestUrl = LATEST_URL, base = DOWNLOAD_BASE, probe = true } = {}) {
+  let res;
   try {
-    release = await res.json();
-  } catch {
-    return null;
+    res = await fetchImpl(latestUrl, {
+      redirect: "follow",
+      headers: { "user-agent": UA, accept: "text/html" },
+      signal: AbortSignal.timeout(CHECK_TIMEOUT_MS),
+    });
+  } catch (error) {
+    return { error: error?.name === "TimeoutError" ? "timeout" : "network" };
   }
-  const parts = parseVersion(release?.tag_name);
-  if (!parts || release?.draft || release?.prerelease) return null;
+  if (!res) return { error: "network" };
+  if (!res.ok) return { error: res.status === 404 ? "none" : "http", status: res.status };
+  // 跟完跳转后地址是 .../releases/tag/vX.Y.Z；没跳转说明对端不是 GitHub 的网页
+  const tag = tagFromUrl(res.url);
+  const parts = parseVersion(tag);
+  if (!parts) return { error: "format" };
   const version = parts.join(".");
-  return {
-    version,
-    tag: String(release.tag_name),
-    page: typeof release.html_url === "string" ? release.html_url : "",
-    ...pickAssets(release, version),
+  const page = `${RELEASES}/tag/${encodeURIComponent(tag)}`;
+  // 下载地址从跳转到的那个页面推出来：指向新仓库就是新仓库，指向旧仓库就是旧仓库（升级指路牌）
+  const origin = /^(https:\/\/github\.com\/[^/]+\/[^/]+)\//.exec(String(res.url ?? ""));
+  const dl = origin ? `${origin[1]}/releases/download` : base;
+  const make = (kind) => {
+    const name = artifactName(version, kind);
+    return { name, url: `${dl}/${encodeURIComponent(tag)}/${name}`, size: 0 };
   };
+  const setup = make("setup");
+  const zip = make("zip");
+  if (probe) {
+    for (const a of [setup, zip]) {
+      const size = await headSize(a.url, fetchImpl);
+      if (size === null) a.missing = true;
+      else a.size = size;
+    }
+  }
+  return { version, tag, page, setup: setup.missing ? null : setup, zip: zip.missing ? null : zip };
 }
 
 /**
@@ -80,7 +119,7 @@ export async function downloadFile(url, dir, name, { onProgress = () => {}, fetc
   fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, name);
   const part = `${file}.part`;
-  const res = await fetchImpl(url, { signal: signal || AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS) });
+  const res = await fetchImpl(url, { redirect: "follow", signal: signal || AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS) });
   if (!res.ok || !res.body) throw new Error(`下载失败：HTTP ${res.status}`);
   const total = Number(res.headers.get("content-length")) || 0;
   let got = 0;

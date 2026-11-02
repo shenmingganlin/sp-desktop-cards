@@ -43,6 +43,24 @@ button {
 }
 input, select { font: inherit; color: inherit; }
 
+/* ── 拉边改大小的把手 ── */
+/* 系统边框在缩放比例不是 100% 时只有几个像素、左右还偏到窗口外面，经常抓不住，改用页面里的把手。 */
+/* 顶边两头让开，别盖住折叠和菜单按钮。 */
+.hnd { position: fixed; z-index: 60; }
+.hnd.h-n { top: 0; left: 30px; right: 30px; height: 5px; cursor: ns-resize; }
+.hnd.h-s { bottom: 0; left: 8px; right: 8px; height: 5px; cursor: ns-resize; }
+.hnd.h-w { left: 0; top: 8px; bottom: 8px; width: 5px; cursor: ew-resize; }
+.hnd.h-e { right: 0; top: 8px; bottom: 8px; width: 5px; cursor: ew-resize; }
+.hnd.h-nw { left: 0; top: 0; width: 8px; height: 8px; cursor: nwse-resize; }
+.hnd.h-ne { right: 0; top: 0; width: 8px; height: 8px; cursor: nesw-resize; }
+.hnd.h-sw { left: 0; bottom: 0; width: 8px; height: 8px; cursor: nesw-resize; }
+.hnd.h-se { right: 0; bottom: 0; width: 8px; height: 8px; cursor: nwse-resize; }
+/* 折叠后只有一条顶栏高，上下不给拉；锁定时整张卡片都不给拉。 */
+body.collapsed .hnd.h-n, body.collapsed .hnd.h-s,
+body.collapsed .hnd.h-nw, body.collapsed .hnd.h-ne,
+body.collapsed .hnd.h-sw, body.collapsed .hnd.h-se { display: none; }
+body.locked .hnd { display: none; }
+
 /* ── 顶栏：按住拖动，双击折叠，右键出菜单 ── */
 #head {
   display: flex;

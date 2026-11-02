@@ -16,6 +16,7 @@ import { CARD_TYPES, createSettingsStore, MODES } from "./settings.js";
 import { createClient, DEFAULT_BASE_URL, HINTS } from "./sp-client.js";
 import { isValidToken, readSpToken } from "./token.js";
 import * as updateCheck from "./update.js";
+import { adoptUserData } from "./usermigrate.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const assets = path.join(here, "..", "..", "assets");
@@ -24,10 +25,16 @@ const preload = path.join(here, "preload.cjs");
 const icon = path.join(assets, "icon.png");
 const SMOKE = process.env.SPW_SMOKE_DIR || "";
 
+// SPW_HOME 是自检用的：把「当前用户目录」整个指到临时目录，搬家逻辑照常走（只换目录，不换行为）
+if (process.env.SPW_HOME) app.setPath("userData", path.join(process.env.SPW_HOME, "SP 桌面卡片"));
 if (process.env.SPW_USER_DATA) app.setPath("userData", process.env.SPW_USER_DATA);
+
+// 0.2.2 及以前叫「SP 今日小窗」，设置在同名目录里。第一次以新名字启动时搬过来，见 usermigrate.js。
+// SPW_USER_DATA 是自检用的独立目录，旁边没有老目录，不用搬，也别去碰真正的设置。
+if (!process.env.SPW_USER_DATA) adoptUserData(app.getPath("userData"));
 if (!app.requestSingleInstanceLock()) app.exit(0);
 // Windows 上不设这个，系统通知显示不出来
-app.setAppUserModelId("io.github.shenmingganlin.sp-today-widget");
+app.setAppUserModelId("io.github.shenmingganlin.sp-desktop-cards");
 
 const MODE_LABEL = { top: "置顶", normal: "普通窗口", desktop: "嵌入桌面" };
 const OK = { ok: true };
@@ -262,13 +269,13 @@ let trayTimer = null;
 
 function trayTip() {
   const p = pomoState;
-  if (p.status === "idle") return "SP 今日小窗";
+  if (p.status === "idle") return "SP 桌面卡片";
   const ms = Math.max(0, p.status === "running" ? p.endsAt - Date.now() : p.remainingMs);
   const sec = Math.ceil(ms / 1000);
   const clock = `${String(Math.floor(sec / 60)).padStart(2, "0")}:${String(sec % 60).padStart(2, "0")}`;
   const label = pomo.PHASE_LABEL[p.phase];
-  if (p.status === "ready") return `SP 今日小窗 · ${label}就绪，等你开始`;
-  return `SP 今日小窗 · ${label} ${clock}${p.status === "paused" ? "（已暂停）" : ""}`;
+  if (p.status === "ready") return `SP 桌面卡片 · ${label}就绪，等你开始`;
+  return `SP 桌面卡片 · ${label} ${clock}${p.status === "paused" ? "（已暂停）" : ""}`;
 }
 
 function syncTrayTip() {
@@ -329,7 +336,7 @@ function rebuildTrayMenu() {
 
 function createTray() {
   tray = new Tray(nativeImage.createFromPath(path.join(assets, "tray.png")));
-  tray.setToolTip("SP 今日小窗");
+  tray.setToolTip("SP 桌面卡片");
   tray.on("click", () => (cards.isShown() ? cards.hideAll() : cards.showAll()));
   rebuildTrayMenu();
 }
@@ -353,7 +360,7 @@ function openSettings() {
     show: false,
     autoHideMenuBar: true,
     backgroundColor: "#1f1f1f",
-    title: "SP 今日小窗 · 设置",
+    title: "SP 桌面卡片 · 设置",
     icon,
     webPreferences: { preload, contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: false },
   });
@@ -383,7 +390,7 @@ function openTour() {
     show: false,
     autoHideMenuBar: true,
     backgroundColor: "#1f1f1f",
-    title: "SP 今日小窗 · 使用教程",
+    title: "SP 桌面卡片 · 使用教程",
     icon,
     webPreferences: { preload, contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: false },
   });
@@ -409,7 +416,9 @@ const updatesDir = () => path.join(app.getPath("userData"), "updates");
 /** 是不是用安装包装的：免安装版旁边没有卸载程序。 */
 function installedBySetup() {
   try {
-    return fs.existsSync(path.join(path.dirname(app.getPath("exe")), "Uninstall SP-Today-Widget.exe"));
+    // 名字改过：老的安装版旁边是 Uninstall SP-Today-Widget.exe
+    const dir = path.dirname(app.getPath("exe"));
+    return ["Uninstall SP-Desktop-Cards.exe", "Uninstall SP-Today-Widget.exe"].some((f) => fs.existsSync(path.join(dir, f)));
   } catch {
     return false;
   }
@@ -426,7 +435,7 @@ function askBox({ message, detail, buttons, cancelId = 1 }) {
   // 卡片在「置顶」模式时比对话框高，先让它们落下来，问完再回去
   cards?.holdTop(true);
   return dialog
-    .showMessageBox({ type: "info", title: "SP 今日小窗", message, detail, buttons, cancelId, defaultId: 0, noLink: true })
+    .showMessageBox({ type: "info", title: "SP 桌面卡片", message, detail, buttons, cancelId, defaultId: 0, noLink: true })
     .then((r) => r.response, () => cancelId)
     .finally(() => cards?.holdTop(false));
 }
@@ -454,7 +463,7 @@ function openUpdateWindow(version) {
     show: false,
     autoHideMenuBar: true,
     backgroundColor: "#1f1f1f",
-    title: `SP 今日小窗 · 下载 ${version}`,
+    title: `SP 桌面卡片 · 下载 ${version}`,
     icon,
     webPreferences: { preload, contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: false },
   });
@@ -492,7 +501,7 @@ async function downloadUpdate(latest) {
     sendUpdate({ type: "done" });
     const answer = await askBox({
       message: `下载完成：${latest.version}`,
-      detail: "现在安装吗？装的时候小窗会关掉，装好之后会自己回来。",
+      detail: "现在安装吗？装的时候程序会关掉，装好之后会自己回来。",
       buttons: ["立即安装", "稍后"],
     });
     if (answer === 0) {
@@ -512,15 +521,42 @@ async function downloadUpdate(latest) {
  * 看看有没有新版本。manual 是自己点的，查不到、已是最新都会说一声（自动检查时安静）。
  * 一天最多自动查一次，点过「跳过这个版本」的版本不再提醒。
  */
+// 查不到时说什么。网络类的错误值得再试一次：GitHub 在国内时好时坏。
+const CHECK_FAIL = {
+  network: ["连不上 GitHub", "检查一下网络；开着代理的话看看代理还在不在，过一会儿再试。"],
+  timeout: ["GitHub 没有响应", "网络有点慢，过一会儿再试。"],
+  http: ["GitHub 那边出错了", "过一会儿再试。一直这样就去 Release 页手动看看。"],
+  none: ["GitHub 上还没有发布版本", ""],
+  format: ["没看懂 GitHub 的返回", "可能是网络里插了东西，过一会儿再试。"],
+};
+
+async function latestRelease() {
+  const opts = { latestUrl: process.env.SPW_UPDATE_API || undefined, base: process.env.SPW_UPDATE_BASE || undefined };
+  let r = await updateCheck.fetchLatest(opts);
+  // 新仓库查不到（改名初期、或者网络抖一下）就回头问旧仓库的指路牌，老用户不至于断了升级的路
+  const bad = (x) => x?.error === "network" || x?.error === "timeout";
+  if (bad(r)) r = await updateCheck.fetchLatest(opts);
+  if (!r || r.error) {
+    // 旧仓库里的安装包还是旧文件名，只能给下载页，不能在这里直接下
+    const legacyUrl = process.env.SPW_UPDATE_LEGACY_API || updateCheck.legacyLatestUrl();
+    const legacy = await updateCheck.fetchLatest({ ...opts, latestUrl: legacyUrl });
+    if (legacy && !legacy.error && updateCheck.isNewer(legacy.version, app.getVersion())) return { ...legacy, legacy: true };
+  }
+  return r;
+}
+
 async function checkUpdate({ manual = false } = {}) {
   if (updateBusy) return;
   updateBusy = true;
   try {
-    const latest = await updateCheck.fetchLatest({ api: process.env.SPW_UPDATE_API || updateCheck.DEFAULT_API });
+    const latest = await latestRelease();
     settings.update({ lastUpdateCheck: Date.now() });
     const current = app.getVersion();
-    if (!latest) {
-      if (manual) await askBox({ message: "没能检查更新", detail: "连不上 GitHub，过一会儿再试。", buttons: ["好"], cancelId: 0 });
+    if (latest?.error || !latest) {
+      if (manual) {
+        const [message, detail] = CHECK_FAIL[latest?.error] || CHECK_FAIL.network;
+        await askBox({ message, detail: latest?.status ? `${detail}\n\n（HTTP ${latest.status}）`.trim() : detail, buttons: ["好"], cancelId: 0 });
+      }
       return;
     }
     if (!updateCheck.isNewer(latest.version, current)) {
@@ -529,11 +565,14 @@ async function checkUpdate({ manual = false } = {}) {
     }
     if (!manual && settings.get().skipVersion === latest.version) return;
     // SPW_UPDATE_SETUP=1 是自检用的：开发版旁边没有卸载程序，也当安装版走一遍下载流程
-    const setup = installedBySetup() || process.env.SPW_UPDATE_SETUP === "1" ? latest.setup : null;
+    // 旧仓库的指路版本只给下载页：那边还是旧文件名，装完程序名字也换回来了
+    const setup = !latest.legacy && (installedBySetup() || process.env.SPW_UPDATE_SETUP === "1") ? latest.setup : null;
     const buttons = setup ? ["下载并安装", "稍后", "跳过这个版本"] : ["打开下载页", "稍后", "跳过这个版本"];
     const detail = setup
       ? `当前 ${current}。下载完直接安装，设置和卡片位置都保留。`
-      : `当前 ${current}。免安装版请在下载页里解压替换。`;
+      : latest.legacy
+        ? `当前 ${current}。程序改名成「SP 桌面卡片」了，去下载页装这一版换过来，设置和卡片位置都保留。`
+        : `当前 ${current}。免安装版请在下载页里解压替换。`;
     const answer = await askBox({ message: `发现新版本 ${latest.version}`, detail, buttons });
     if (answer === 1) return;
     if (answer === 2) {
@@ -541,7 +580,7 @@ async function checkUpdate({ manual = false } = {}) {
       return;
     }
     if (!setup) {
-      shell.openExternal(latest.page || `https://github.com/${updateCheck.REPO}/releases/latest`).catch(() => {});
+      shell.openExternal(latest.page || `https://github.com/${latest.legacy ? updateCheck.LEGACY_REPO : updateCheck.REPO}/releases/latest`).catch(() => {});
       return;
     }
     await downloadUpdate(latest);
@@ -674,6 +713,13 @@ ipcMain.on("drag-start", (event, alone) => {
 });
 ipcMain.on("drag-end", (event) => {
   if (cards?.typeOf(event.sender)) cards.dragEnd();
+});
+ipcMain.on("resize-start", (event, edges) => {
+  const type = cards?.typeOf(event.sender);
+  if (type) cards.resizeStart(type, edges);
+});
+ipcMain.on("resize-end", (event) => {
+  if (cards?.typeOf(event.sender)) cards.resizeEnd();
 });
 
 // ── 自检截图：SPW_SMOKE_DIR 设了就等所有卡片画好，逐张截图后退出，给测试和发布前检查用。 ──

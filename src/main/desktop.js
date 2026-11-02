@@ -106,6 +106,13 @@ export function sink(win) {
   a.SetWindowPos(hwndOf(win), HWND_BOTTOM, 0, 0, 0, 0, SWP_KEEP);
 }
 
+/** Alt 现在按着吗。拉边改大小时按住 Alt 不吸附。 */
+export function altDown() {
+  const a = load();
+  if (!a) return false;
+  return (a.GetAsyncKeyState(0x12) & 0x8000) !== 0; // VK_MENU
+}
+
 /**
  * 鼠标主键现在是否按着；拿不到时返回 null。拖动卡片时用来兜底：
  * 页面偶尔收不到松开事件（比如松开时光标在别的窗口上），不能让卡片一直跟着光标走。

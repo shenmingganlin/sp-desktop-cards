@@ -299,6 +299,7 @@ const W = (() => {
   function render(force = false) {
     const d = def();
     document.body.classList.toggle("collapsed", collapsed());
+    document.body.classList.toggle("locked", !!state.settings?.locked);
     document.body.classList.toggle("attention", !!state.attention && TYPE === "focus");
     $("collapse").textContent = collapsed() ? "▸" : "▾";
     $("title").textContent = d.title || "";
@@ -366,6 +367,32 @@ const W = (() => {
   head.addEventListener("pointercancel", endDrag);
   head.addEventListener("lostpointercapture", endDrag);
   window.addEventListener("blur", endDrag);
+
+  // ── 拉边改大小 ──
+  // 系统自带的边框只有几个像素，缩放比例不是 100% 时还偏到窗口外面去，左右两边常常整条都抓不住。
+  // 改成在页面里画八个把手：按住之后由主进程按光标位置算尺寸（和拖动一样每 16ms 一次），
+  // 到别的卡片共线的边界或者屏幕边上的时候会吸一下，按住 Alt 不吸。
+  let resizing = false;
+  function endResize() {
+    if (!resizing) return;
+    resizing = false;
+    window.widget.resizeEnd();
+  }
+  for (const edge of ["n", "s", "e", "w", "ne", "nw", "se", "sw"]) {
+    const grip = document.createElement("div");
+    grip.className = `hnd h-${edge}`;
+    grip.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      grip.setPointerCapture(e.pointerId);
+      resizing = true;
+      window.widget.resizeStart(edge);
+    });
+    for (const type of ["pointerup", "pointercancel", "lostpointercapture"]) grip.addEventListener(type, endResize);
+    document.body.appendChild(grip);
+  }
+  window.addEventListener("blur", endResize);
 
   // 按下时顶栏捕获了指针，双击事件落在 #head 上，不在 #drag 上
   head.addEventListener("dblclick", (e) => {

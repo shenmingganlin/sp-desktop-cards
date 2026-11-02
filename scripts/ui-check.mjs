@@ -352,7 +352,7 @@ try {
       const f = await bounds("focus");
       const t = await bounds("today");
       const x = f.x + 150;
-      const y = f.y + f.height + 1; // 无边框窗口的缩放边从边线往外几个像素，正好落在卡片间的空隙里
+      const y = f.y + f.height - 2; // 下边的把手在窗口里面几个像素（系统的缩放边已经不用了）
       SetCursorPos(x, y);
       await sleep(100);
       mouseEvent(0x0002, 0, 0, 0, 0);

@@ -7,8 +7,9 @@ import test from "node:test";
 import * as pomo from "../src/main/pomodoro.js";
 import { INBOX, taskFields } from "../src/main/quickadd.js";
 import { CARD_SIZE, DEFAULTS, GAP, migrate, sanitize } from "../src/main/settings.js";
-import { defaultSpot, followResize, groupOf, isOnScreen, snapMove } from "../src/main/snap.js";
-import { downloadFile, fetchLatest, isNewer, parseVersion, pickAssets } from "../src/main/update.js";
+import { defaultSpot, followResize, groupOf, isOnScreen, resizeRect, snapMove } from "../src/main/snap.js";
+import { artifactName, downloadFile, fetchLatest, isNewer, parseVersion, tagFromUrl } from "../src/main/update.js";
+import { adoptUserData } from "../src/main/usermigrate.js";
 
 const MIN = 60_000;
 
@@ -150,6 +151,48 @@ test("吸附：靠近别的卡片边缘时吸过去并对齐", () => {
   assert.deepEqual(snapMove(rect(1610, 500), [], [{ x: 0, y: 0, width: 1920, height: 1040 }]), { dx: 10, dy: 0 });
 });
 
+test("拉边改大小：按光标挪边，夹住最小尺寸", () => {
+  const min = { width: 240, height: 160 };
+  const start = rect(0, 0, 300, 300);
+  // 拉右边 +40
+  assert.deepEqual(resizeRect(start, "e", 40, 0, min), { x: 0, y: 0, width: 340, height: 300 });
+  // 拉左边 +40：位置跟着动，宽度变小
+  assert.deepEqual(resizeRect(start, "w", 40, 0, min), { x: 40, y: 0, width: 260, height: 300 });
+  // 拉右下角
+  assert.deepEqual(resizeRect(start, "se", 40, 20, min), { x: 0, y: 0, width: 340, height: 320 });
+  // 缩到比最小尺寸还小就停住
+  assert.equal(resizeRect(start, "e", -1000, 0, min).width, 240);
+  assert.equal(resizeRect(start, "w", 1000, 0, min).width, 240);
+  assert.equal(resizeRect(start, "s", 0, -1000, min).height, 160);
+  assert.equal(resizeRect(start, "n", 0, 1000, min).height, 160);
+});
+
+test("拉边改大小：边界共线、隔一个 GAP 相邻、屏幕边都会吸住，Alt 不吸", () => {
+  const min = { width: 100, height: 100 };
+  const start = rect(0, 0, 300, 300);
+  // 下面拼着一张更宽的卡片（拼在下面 = 上边缘比 bottom+4 低），右边界还差 4 像素就共线：吸到它的右边缘 600
+  const below = rect(0, 300 + GAP, 600, 300);
+  assert.equal(resizeRect(start, "e", 296, 0, min, { others: [below] }).width, 600);
+  // 右边有张卡片隔着 GAP：右边缘吸到「o.x - GAP」
+  const right = rect(300 + 12 + GAP, 0, 300, 300);
+  assert.equal(resizeRect(start, "e", 16, 0, min, { others: [right] }).width, right.x - GAP);
+  // 同一列里下边共线：下面卡片的下边缘
+  const below2 = rect(0, 300 + GAP, 300, 300);
+  assert.equal(resizeRect(start, "s", 0, 296, min, { others: [below2] }).height, 300 + GAP + 300);
+  // 按住 Alt：不吸，就是光标的位置
+  assert.equal(resizeRect(start, "e", 296, 0, min, { others: [below], snap: false }).width, 596);
+  // 屏幕右边
+  const area = { x: 0, y: 0, width: 1920, height: 1040 };
+  assert.equal(resizeRect(rect(1000, 0, 300, 300), "e", 613, 0, min, { workAreas: [area] }).width, 920);
+  // 离得远的不吸
+  assert.equal(resizeRect(start, "e", 260, 0, min, { others: [rect(800, 900)] }).width, 560);
+  // 上下方向：下边吸到旁边卡片的底边（共线）
+  const beside = rect(400, 0, 300, 420);
+  assert.equal(resizeRect(start, "s", 0, 116, min, { others: [beside] }).height, 420);
+  // 左边的卡片只参与左边界，拉右边时不吸它
+  assert.equal(resizeRect(start, "e", 116, 0, min, { others: [rect(-320, 0, 300, 300)] }).width, 416);
+});
+
 test("折叠和改大小：下面拼着的卡片连锁跟着挪，旁边的不动", () => {
   const before = rect(0, 0);
   const moves = followResize(layout(), "a", before, { ...before, height: 34 });
@@ -224,35 +267,47 @@ test("检查更新：版本号比较", () => {
   assert.equal(isNewer("nightly", "0.2.1"), false, "认不出来就当没更新");
 });
 
-test("检查更新：从 Release 里挑安装包", () => {
-  const assets = [
-    { name: "sp-today-widget-0.2.2-setup.exe", browser_download_url: "https://x/setup", size: 10 },
-    { name: "sp-today-widget-0.2.2-win-x64.zip", browser_download_url: "https://x/zip", size: 20 },
-    { name: "sp-today-widget-0.2.1-setup.exe", browser_download_url: "https://x/old" },
-  ];
-  const picked = pickAssets({ assets }, "0.2.2");
-  assert.equal(picked.setup.url, "https://x/setup");
-  assert.equal(picked.zip.size, 20);
-  assert.equal(pickAssets({ assets }, "0.2.3").setup, null);
-  assert.equal(pickAssets({}, "0.2.2").zip, null);
+test("检查更新：从跳转后的地址认出最新版本，按命名规则拼出安装包地址", async () => {
+  assert.equal(tagFromUrl("https://github.com/o/r/releases/tag/v0.2.2"), "v0.2.2");
+  assert.equal(tagFromUrl("https://github.com/o/r/releases/latest"), null);
+  assert.equal(artifactName("0.2.2", "setup"), "sp-desktop-cards-0.2.2-setup.exe");
+  assert.equal(artifactName("0.2.2", "zip"), "sp-desktop-cards-0.2.2-win-x64.zip");
+
+  const calls = [];
+  const fetchImpl = async (url, opts = {}) => {
+    calls.push({ url, method: opts.method || "GET" });
+    if (opts.method === "HEAD") return new Response(null, { status: 200, headers: { "content-length": "121742191" } });
+    return { ok: true, status: 200, url: "https://github.com/shenmingganlin/sp-desktop-cards/releases/tag/v0.2.2" };
+  };
+  const r = await fetchLatest({ fetchImpl, latestUrl: "https://github.com/o/r/releases/latest", base: "https://github.com/o/r/releases/download" });
+  assert.equal(r.version, "0.2.2");
+  assert.equal(r.tag, "v0.2.2");
+  assert.equal(r.page, "https://github.com/shenmingganlin/sp-desktop-cards/releases/tag/v0.2.2");
+  // 下载地址跟着跳过去的仓库走，不是写死的（旧仓库的指路牌也能用同一套逻辑）
+  assert.equal(r.setup.url, "https://github.com/shenmingganlin/sp-desktop-cards/releases/download/v0.2.2/sp-desktop-cards-0.2.2-setup.exe");
+  assert.equal(r.setup.size, 121742191);
+  assert.ok(calls.some((c) => c.method === "HEAD"), "要用 HEAD 确认安装包在不在");
 });
 
-test("检查更新：最新版本、404、没网都给出可用的结果", async () => {
-  const release = {
-    tag_name: "v0.2.2",
-    html_url: "https://github.com/x/releases/tag/v0.2.2",
-    assets: [{ name: "sp-today-widget-0.2.2-setup.exe", browser_download_url: "https://x/setup", size: 5 }],
-  };
-  const ok = await fetchLatest({ fetchImpl: async () => ({ ok: true, json: async () => release }) });
-  assert.equal(ok.version, "0.2.2");
-  assert.equal(ok.setup.url, "https://x/setup");
-  assert.equal(ok.page, release.html_url);
-  assert.equal(await fetchLatest({ fetchImpl: async () => ({ ok: false, status: 404 }) }), null);
-  assert.equal(await fetchLatest({ fetchImpl: async () => { throw new Error("offline"); } }), null);
-  assert.equal(await fetchLatest({ fetchImpl: async () => ({ ok: true, json: async () => { throw new Error("bad json"); } }) }), null);
-  assert.equal(await fetchLatest({ fetchImpl: async () => ({ ok: true, json: async () => ({ tag_name: "nope" }) }) }), null);
-  // 预发布和草稿不提示
-  assert.equal(await fetchLatest({ fetchImpl: async () => ({ ok: true, json: async () => ({ ...release, prerelease: true }) }) }), null);
+test("检查更新：限流、404、没网、地址不对都说得出是什么原因", async () => {
+  // 没发布过版本：releases/latest 回 404
+  assert.equal((await fetchLatest({ fetchImpl: async () => ({ ok: false, status: 404, url: "x" }) })).error, "none");
+  // 被限流或者被墙：带上状态码，好让提示能分开说
+  const http = await fetchLatest({ fetchImpl: async () => ({ ok: false, status: 403, url: "x" }) });
+  assert.equal(http.error, "http");
+  assert.equal(http.status, 403);
+  // 没网 / 超时
+  assert.equal((await fetchLatest({ fetchImpl: async () => { throw new Error("offline"); } })).error, "network");
+  const slow = () => { const e = new Error("t"); e.name = "TimeoutError"; throw e; };
+  assert.equal((await fetchLatest({ fetchImpl: async () => slow() })).error, "timeout");
+  // 跟完跳转不是 tag 页（网络里被塞了别的东西）
+  assert.equal((await fetchLatest({ fetchImpl: async () => ({ ok: true, status: 200, url: "https://example.com/" }) })).error, "format");
+  // 安装包还没传上去：HEAD 404，这一项给 null，界面就走「打开下载页」
+  const r = await fetchLatest({
+    fetchImpl: async (_u, opts = {}) => (opts.method === "HEAD" ? { ok: false, status: 404 } : { ok: true, status: 200, url: "https://github.com/o/r/releases/tag/v1.0.0" }),
+  });
+  assert.equal(r.setup, null);
+  assert.equal(r.zip, null);
 });
 
 test("检查更新：下载报进度，下完才改名，半路失败不留文件", async () => {
@@ -275,4 +330,49 @@ test("检查更新：下载报进度，下完才改名，半路失败不留文�
   assert.match(err, /500/);
   assert.ok(fs.existsSync(file));
   fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("改名搬家：老目录的设置第一次启动时整个搬过来，第二次不再搬", () => {
+  const roam = fs.mkdtempSync(path.join(os.tmpdir(), "spw-home-"));
+  const old = path.join(roam, "SP 今日小窗");
+  const now = path.join(roam, "SP 桌面卡片");
+  fs.mkdirSync(old);
+  fs.writeFileSync(path.join(old, "settings.json"), '{"opacity":0.5}');
+  fs.writeFileSync(path.join(old, "other.txt"), "x");
+  assert.equal(adoptUserData(now), "moved");
+  assert.equal(JSON.parse(fs.readFileSync(path.join(now, "settings.json"), "utf8")).opacity, 0.5);
+  assert.equal(fs.readFileSync(path.join(now, "other.txt"), "utf8"), "x", "不是只搬 settings.json");
+  assert.equal(fs.existsSync(old), false, "搬走后老目录不该留着，否则会被再搬一次");
+  // 第二次：新目录已经有设置，老目录也没了 —— 什么也不做
+  assert.equal(adoptUserData(now), "kept");
+  fs.rmSync(roam, { recursive: true, force: true });
+});
+
+test("改名搬家：新目录已经有设置就不动，老版本没有设置也不动", () => {
+  const roam = fs.mkdtempSync(path.join(os.tmpdir(), "spw-home-"));
+  const old = path.join(roam, "SP 今日小窗");
+  const now = path.join(roam, "SP 桌面卡片");
+  // 情况一：两边都有设置 —— 以新的为准
+  fs.mkdirSync(old);
+  fs.mkdirSync(now);
+  fs.writeFileSync(path.join(old, "settings.json"), '{"opacity":0.1}');
+  fs.writeFileSync(path.join(now, "settings.json"), '{"opacity":0.9}');
+  assert.equal(adoptUserData(now), "kept");
+  assert.equal(JSON.parse(fs.readFileSync(path.join(now, "settings.json"), "utf8")).opacity, 0.9);
+  // 情况二：老目录没有设置（从来没用过）
+  fs.rmSync(now, { recursive: true, force: true });
+  fs.rmSync(path.join(old, "settings.json"));
+  assert.equal(adoptUserData(now), "kept");
+  assert.equal(fs.existsSync(now), false);
+  fs.rmSync(roam, { recursive: true, force: true });
+});
+
+test("改名搬家：新目录已经被 Chromium 建好（空目录）也能搬", () => {
+  const roam = fs.mkdtempSync(path.join(os.tmpdir(), "spw-home-"));
+  fs.mkdirSync(path.join(roam, "SP 今日小窗"));
+  fs.writeFileSync(path.join(roam, "SP 今日小窗", "settings.json"), '{"opacity":0.3}');
+  fs.mkdirSync(path.join(roam, "SP 桌面卡片"));
+  assert.equal(adoptUserData(path.join(roam, "SP 桌面卡片")), "moved");
+  assert.equal(JSON.parse(fs.readFileSync(path.join(roam, "SP 桌面卡片", "settings.json"), "utf8")).opacity, 0.3);
+  fs.rmSync(roam, { recursive: true, force: true });
 });

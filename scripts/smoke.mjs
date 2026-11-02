@@ -87,4 +87,37 @@ results.push(await run("empty", {
   expect: PNG("focus", "today", "planner", "schedule", "month"),
 }));
 
+// 改名搬家：老目录（SP 今日小窗）和新目录（SP 桌面卡片）并排放在临时目录里，
+// 用 SPW_HOME 把用户目录指到这里，启动后看设置有没有从老目录搬过来（走的是真实启动路径）。
+{
+  const dir = path.join(out, "adopt");
+  fs.rmSync(dir, { recursive: true, force: true });
+  const legacy = path.join(dir, "SP 今日小窗");
+  const now = path.join(dir, "SP 桌面卡片");
+  fs.mkdirSync(legacy, { recursive: true });
+  fs.writeFileSync(path.join(legacy, "settings.json"), JSON.stringify({ version: 2, tourDone: true, mode: "normal", opacity: 0.66, cards: { today: { visible: true, bounds: { x: 200, y: 150, width: 320, height: 400 } } } }));
+  // 新目录已经被 Chromium 建出来（空的）：实际升级时经常是这样
+  fs.mkdirSync(now, { recursive: true });
+  const data = sampleData(Date.now());
+  const sp = await startFakeSp({ data });
+  const env = { ...process.env, SPW_SMOKE_DIR: dir, SPW_HOME: dir, SPW_BASE_URL: sp.url, SPW_TOKEN: sp.token };
+  const child = spawn(electron, [root], { env, stdio: "inherit" });
+  const code = await new Promise((resolve) => {
+    const timer = setTimeout(() => { child.kill(); resolve("timeout"); }, 40000);
+    child.on("exit", (c) => { clearTimeout(timer); resolve(c); });
+  });
+  await sp.close();
+  let ok = code === 0;
+  try {
+    const s = JSON.parse(fs.readFileSync(path.join(now, "settings.json"), "utf8"));
+    if (s.opacity !== 0.66) throw new Error(`透明度没搬过来：${s.opacity}`);
+    if (fs.existsSync(legacy)) throw new Error("老目录没搬走");
+  } catch (error) {
+    ok = false;
+    console.log("adopt 失败：", error.message);
+  }
+  console.log("adopt", "exit", code, ok ? "设置从老目录搬过来了" : "没搬过来");
+  results.push({ ok });
+}
+
 if (results.some((r) => !r.ok)) process.exit(1);

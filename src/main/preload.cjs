@@ -19,4 +19,6 @@ contextBridge.exposeInMainWorld("widget", {
   // 拖动要快，不等回复
   dragStart: (alone) => ipcRenderer.send("drag-start", !!alone),
   dragEnd: () => ipcRenderer.send("drag-end"),
+  resizeStart: (edges) => ipcRenderer.send("resize-start", String(edges)),
+  resizeEnd: () => ipcRenderer.send("resize-end"),
 });

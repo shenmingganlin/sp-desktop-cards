@@ -1,4 +1,6 @@
-# SP 今日小窗
+# SP 桌面卡片
+
+> 以前叫「SP 今日小窗」。功能早就不只管今天了，0.2.3 起改叫「SP 桌面卡片」。
 
 [Super Productivity](https://super-productivity.com/)（SP）的桌面卡片。每个功能一张卡片，想看哪张开哪张，卡片之间可以拼接吸附，拼好的一组一起拖动。
 
@@ -13,7 +15,7 @@
 ## 摆放
 
 - **拖动**：按住顶栏拖。靠近别的卡片或屏幕边缘时会吸过去，拼在一起的卡片之后整组一起走；按住 **Alt** 拖只挪这一张。
-- **改大小**：拖卡片边缘。拼在旁边的卡片会跟着让开或靠拢。
+- **改大小**：拖卡片边缘（四边和四个角都行，有八个把手）。拉到和别的卡片边缘共线、或者挨着拼起来的位置时会吸一下，方便对齐；按住 **Alt** 拖就不吸。拼在旁边的卡片会跟着让开或靠拢。
 - **折叠**：双击顶栏或点左边的 ▾，收成一行，下面拼着的卡片跟上来。
 - **显示方式**（顶栏 ⋯ 菜单、托盘菜单或设置里切换）：
   - 置顶：浮在所有窗口上面。
@@ -69,15 +71,15 @@
 - 日历事件（Google 日历、CalDAV 插件的数据）读不到，REST API 不提供。
 - 日程卡片不会像 SP 那样把没定时间的任务自动排进空档，它们放在时间轴上方。
 - **启动后立刻退出、没有窗口**：Electron 45 启动时会检查安装目录的权限。如果目录的权限表里有某个应用沙盒（AppContainer）的专属条目，却没有「所有应用程序包」，就会拒绝启动。装过 Codex 等带沙盒的软件后，`%LOCALAPPDATA%\Programs` 和 `%TEMP%` 可能是这种状态。解决办法二选一：
-  - 安装时换一个目录（例如 `D:\Apps\SP 今日小窗`），或用 zip 版解压到别的盘；
+  - 安装时换一个目录（例如 `D:\Apps\SP 桌面卡片`），或用 zip 版解压到别的盘；
   - 给安装目录补上权限（把路径换成你的安装目录）：`icacls "安装目录" /grant *S-1-15-2-1:(OI)(CI)(RX)`
 
 ## 下载
 
-在 [Releases](https://github.com/shenmingganlin/sp-today-widget/releases/latest) 页面下载：
+在 [Releases](https://github.com/shenmingganlin/sp-desktop-cards/releases/latest) 页面下载：
 
-- `sp-today-widget-<版本>-setup.exe`：安装版，可选安装目录，带开始菜单和桌面快捷方式。
-- `sp-today-widget-<版本>-win-x64.zip`：免安装版，解压后运行 `SP-Today-Widget.exe`。
+- `sp-desktop-cards-<版本>-setup.exe`：安装版，可选安装目录，带开始菜单和桌面快捷方式。
+- `sp-desktop-cards-<版本>-win-x64.zip`：免安装版，解压后运行 `SP-Desktop-Cards.exe`。
 
 ## 开发
 
@@ -91,7 +93,7 @@ npm run desktop-check   # 嵌入桌面模式真机检查（会按 Win+D、移动
 npm run dist            # 打 Windows 安装包和 zip，输出到 dist/
 ```
 
-检查脚本只连假 SP。设 `SPW_EXE` 指向打包好的 `SP-Today-Widget.exe` 时，smoke 和 desktop-check 检查打包产物。
+检查脚本只连假 SP。设 `SPW_EXE` 指向打包好的 `SP-Desktop-Cards.exe` 时，smoke 和 desktop-check 检查打包产物。
 
 代码结构：
 
