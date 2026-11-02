@@ -376,3 +376,18 @@ test("改名搬家：新目录已经被 Chromium 建好（空目录）也能搬"
   assert.equal(JSON.parse(fs.readFileSync(path.join(roam, "SP 桌面卡片", "settings.json"), "utf8")).opacity, 0.3);
   fs.rmSync(roam, { recursive: true, force: true });
 });
+
+test("改名搬家：老版本还开着、缓存复制不动时，设置也要先到手", () => {
+  const roam = fs.mkdtempSync(path.join(os.tmpdir(), "spw-home-"));
+  const old = path.join(roam, "SP 今日小窗");
+  const now = path.join(roam, "SP 桌面卡片");
+  fs.mkdirSync(old);
+  fs.mkdirSync(now);
+  fs.writeFileSync(path.join(old, "settings.json"), '{"opacity":0.4}');
+  fs.writeFileSync(path.join(now, "lock"), ""); // 新目录已经有东西，rename 走不通
+  const result = adoptUserData(now);
+  assert.ok(result === "copied" || result === "moved", result);
+  const s = JSON.parse(fs.readFileSync(path.join(now, "settings.json"), "utf8"));
+  assert.equal(s.opacity, 0.4, "设置没搬过来");
+  fs.rmSync(roam, { recursive: true, force: true });
+});

@@ -30,7 +30,15 @@ export function adoptUserData(dataDir, { legacyName = LEGACY_DIR } = {}) {
         // 继续用复制
       }
     }
-    fs.cpSync(old, dataDir, { recursive: true, force: false, errorOnExist: false });
+    // 复制时先抢设置文件：老版本多半还开着，Chromium 的缓存文件是锁着的，复制到一半就会失败。
+    // 别的都能下次再补，设置丢了就补不回来了。
+    fs.mkdirSync(dataDir, { recursive: true });
+    fs.copyFileSync(path.join(old, "settings.json"), path.join(dataDir, "settings.json"));
+    try {
+      fs.cpSync(old, dataDir, { recursive: true, force: false, errorOnExist: false });
+    } catch {
+      // 缓存之类复制不动就算了，设置已经在
+    }
     return "copied";
   } catch {
     return "failed";
