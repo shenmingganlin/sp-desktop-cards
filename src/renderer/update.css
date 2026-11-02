@@ -1,0 +1,23 @@
+/* update.css — 下载更新时的小窗口。和卡片、设置用同一套颜色。 */
+:root {
+  --bg: #1f1f1f;
+  --bg-2: #2a2a2a;
+  --line: #3a3a3a;
+  --text: #e8e8e8;
+  --dim: #9a9a9a;
+  --accent: #ff4d8d;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 13px/1.6 "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif; user-select: none; }
+body { display: flex; flex-direction: column; padding: 16px 20px 14px; }
+h1 { margin: 0 0 6px; font-size: 15px; font-weight: 600; color: var(--accent); }
+p { margin: 0 0 12px; color: var(--dim); font-size: 12px; }
+#bar { flex: none; height: 8px; border-radius: 4px; background: #3c3c3c; overflow: hidden; }
+#fill { display: block; width: 0; height: 100%; background: var(--accent); transition: width 0.2s linear; }
+footer { margin-top: auto; display: flex; justify-content: flex-end; gap: 8px; padding-top: 14px; }
+.btn { padding: 4px 14px; border: 1px solid #444; border-radius: 4px; background: var(--bg-2); color: inherit; font: inherit; cursor: pointer; }
+.btn:hover { background: #3a3a3a; }
+.btn.primary { border-color: var(--accent); background: var(--accent); color: #fff; }
+.btn.primary:hover { background: #ff6ba1; }

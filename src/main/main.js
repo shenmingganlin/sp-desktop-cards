@@ -1,6 +1,8 @@
 // main.js — 主进程：卡片窗口、托盘、设置窗口、番茄钟、和 SP 的通信。
 
-import { app, BrowserWindow, ipcMain, Menu, nativeImage, nativeTheme, Notification, powerMonitor, safeStorage, shell, Tray } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, powerMonitor, safeStorage, shell, Tray } from "electron";
+import { spawn } from "node:child_process";
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { addDays, addMonths, buildMonth, buildPlanner, buildSchedule } from "./calendar.js";
@@ -13,6 +15,7 @@ import { taskFields } from "./quickadd.js";
 import { CARD_TYPES, createSettingsStore, MODES } from "./settings.js";
 import { createClient, DEFAULT_BASE_URL, HINTS } from "./sp-client.js";
 import { isValidToken, readSpToken } from "./token.js";
+import * as updateCheck from "./update.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const assets = path.join(here, "..", "..", "assets");
@@ -298,6 +301,7 @@ function sharedMenu() {
     { label: "打开 Super Productivity", click: openSp },
     { label: "设置…", click: openSettings },
     { label: "使用教程", click: openTour },
+    { label: "检查更新…", click: () => void checkUpdate({ manual: true }) },
   ];
 }
 
@@ -395,6 +399,157 @@ function openTour() {
   tourWin.loadFile(path.join(renderer, "tour.html"));
 }
 
+// ── 检查更新：查 GitHub 上最新的 Release，问一声再下载，装完自己回来 ──
+let updateWin = null;
+let updateBusy = false; // 正在查或正在下，别重复来
+let downloadAbort = null;
+
+const updatesDir = () => path.join(app.getPath("userData"), "updates");
+
+/** 是不是用安装包装的：免安装版旁边没有卸载程序。 */
+function installedBySetup() {
+  try {
+    return fs.existsSync(path.join(path.dirname(app.getPath("exe")), "Uninstall SP-Today-Widget.exe"));
+  } catch {
+    return false;
+  }
+}
+
+function askBox({ message, detail, buttons, cancelId = 1 }) {
+  // 自检用：SPW_DIALOG_ANSWERS="0,1" 按顺序自动选按钮，省得人去点原生弹窗
+  const auto = process.env.SPW_DIALOG_ANSWERS;
+  if (auto) {
+    const [next, ...rest] = auto.split(",");
+    process.env.SPW_DIALOG_ANSWERS = rest.join(",");
+    return Promise.resolve(Number(next) || 0);
+  }
+  // 卡片在「置顶」模式时比对话框高，先让它们落下来，问完再回去
+  cards?.holdTop(true);
+  return dialog
+    .showMessageBox({ type: "info", title: "SP 今日小窗", message, detail, buttons, cancelId, defaultId: 0, noLink: true })
+    .then((r) => r.response, () => cancelId)
+    .finally(() => cards?.holdTop(false));
+}
+
+function sendUpdate(payload) {
+  if (updateWin && !updateWin.isDestroyed()) updateWin.webContents.send("event", payload);
+}
+
+function closeUpdateWindow() {
+  if (updateWin && !updateWin.isDestroyed()) updateWin.close();
+}
+
+function openUpdateWindow(version) {
+  if (updateWin && !updateWin.isDestroyed()) {
+    updateWin.focus();
+    return;
+  }
+  updateWin = new BrowserWindow({
+    width: 400,
+    height: 190,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    alwaysOnTop: true,
+    show: false,
+    autoHideMenuBar: true,
+    backgroundColor: "#1f1f1f",
+    title: `SP 今日小窗 · 下载 ${version}`,
+    icon,
+    webPreferences: { preload, contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: false },
+  });
+  updateWin.setMenu(null);
+  updateWin.webContents.on("will-navigate", (e) => e.preventDefault());
+  updateWin.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  updateWin.once("ready-to-show", () => updateWin?.show());
+  updateWin.on("closed", () => (updateWin = null));
+  updateWin.loadFile(path.join(renderer, "update.html"));
+}
+
+/** 装新版：先退出，再让命令行等安装包跑完，然后把新的程序打开。 */
+function installUpdate(file) {
+  app.once("will-quit", () => {
+    // cmd /s 会把整串首尾的引号剥掉，所以整条命令外面再包一层引号
+    const cmd = `""${file}" /S && start "" "${process.execPath}""`;
+    try {
+      spawn("cmd.exe", ["/d", "/s", "/c", cmd], { detached: true, stdio: "ignore", windowsVerbatimArguments: true }).unref();
+    } catch {
+      // 起不来就只能让用户自己去点安装包
+    }
+  });
+  app.quit();
+}
+
+async function downloadUpdate(latest) {
+  const name = updateCheck.artifactName(latest.version, "setup");
+  openUpdateWindow(latest.version);
+  downloadAbort = new AbortController();
+  try {
+    const file = await updateCheck.downloadFile(latest.setup.url, updatesDir(), name, {
+      signal: downloadAbort.signal,
+      onProgress: (percent, got, total) => sendUpdate({ type: "progress", percent, got, total }),
+    });
+    sendUpdate({ type: "done" });
+    const answer = await askBox({
+      message: `下载完成：${latest.version}`,
+      detail: "现在安装吗？装的时候小窗会关掉，装好之后会自己回来。",
+      buttons: ["立即安装", "稍后"],
+    });
+    if (answer === 0) {
+      installUpdate(file);
+      return;
+    }
+    closeUpdateWindow();
+  } catch (error) {
+    const aborted = error?.name === "AbortError";
+    sendUpdate({ type: "failed", message: aborted ? "已取消下载。" : error?.message || "下载失败" });
+  } finally {
+    downloadAbort = null;
+  }
+}
+
+/**
+ * 看看有没有新版本。manual 是自己点的，查不到、已是最新都会说一声（自动检查时安静）。
+ * 一天最多自动查一次，点过「跳过这个版本」的版本不再提醒。
+ */
+async function checkUpdate({ manual = false } = {}) {
+  if (updateBusy) return;
+  updateBusy = true;
+  try {
+    const latest = await updateCheck.fetchLatest({ api: process.env.SPW_UPDATE_API || updateCheck.DEFAULT_API });
+    settings.update({ lastUpdateCheck: Date.now() });
+    const current = app.getVersion();
+    if (!latest) {
+      if (manual) await askBox({ message: "没能检查更新", detail: "连不上 GitHub，过一会儿再试。", buttons: ["好"], cancelId: 0 });
+      return;
+    }
+    if (!updateCheck.isNewer(latest.version, current)) {
+      if (manual) await askBox({ message: `已经是最新的 ${current}`, detail: "", buttons: ["好"], cancelId: 0 });
+      return;
+    }
+    if (!manual && settings.get().skipVersion === latest.version) return;
+    // SPW_UPDATE_SETUP=1 是自检用的：开发版旁边没有卸载程序，也当安装版走一遍下载流程
+    const setup = installedBySetup() || process.env.SPW_UPDATE_SETUP === "1" ? latest.setup : null;
+    const buttons = setup ? ["下载并安装", "稍后", "跳过这个版本"] : ["打开下载页", "稍后", "跳过这个版本"];
+    const detail = setup
+      ? `当前 ${current}。下载完直接安装，设置和卡片位置都保留。`
+      : `当前 ${current}。免安装版请在下载页里解压替换。`;
+    const answer = await askBox({ message: `发现新版本 ${latest.version}`, detail, buttons });
+    if (answer === 1) return;
+    if (answer === 2) {
+      settings.update({ skipVersion: latest.version });
+      return;
+    }
+    if (!setup) {
+      shell.openExternal(latest.page || `https://github.com/${updateCheck.REPO}/releases/latest`).catch(() => {});
+      return;
+    }
+    await downloadUpdate(latest);
+  } finally {
+    updateBusy = false;
+  }
+}
+
 // ── 设置 ──
 function saveSettings(patch) {
   const before = settings.get();
@@ -413,7 +568,7 @@ function saveSettings(patch) {
 const isId = (v) => typeof v === "string" && v.length > 0 && v.length < 200;
 // 设置窗口能改的字段；卡片位置、令牌、番茄统计走各自的通道
 const EDITABLE = ["mode", "locked", "opacity", "openAtLogin", "upcomingMinutes", "dayStartHour", "showDone", "plannerDays",
-  "scheduleStartHour", "scheduleEndHour", "quickAddProjectId", "pomodoro"];
+  "scheduleStartHour", "scheduleEndHour", "quickAddProjectId", "pomodoro", "autoUpdate"];
 const pick = (obj, keys) => Object.fromEntries(keys.filter((k) => Object.hasOwn(obj, k)).map((k) => [k, obj[k]]));
 
 async function runTaskAction(fn) {
@@ -479,6 +634,7 @@ const settingsActions = {
   setCardVisible: ({ type, visible }) => (CARD_TYPES.includes(type) && typeof visible === "boolean" ? (cards.setVisible(type, visible), pushState(), OK) : null),
   resetLayout: () => (cards.resetLayout(), OK),
   openTour: () => (openTour(), OK),
+  checkUpdate: () => (void checkUpdate({ manual: true }), OK),
   setToken: ({ token }) => setManualToken(token),
   refresh: () => (poller.kick(), OK),
 };
@@ -487,11 +643,24 @@ const tourActions = {
   close: () => (tourWin?.close(), OK),
 };
 
+const updateActions = {
+  cancel: () => (downloadAbort?.abort(), OK),
+  close: () => (closeUpdateWindow(), OK),
+};
+
 const from = (win, sender) => win && !win.isDestroyed() && sender === win.webContents;
 
 ipcMain.handle("action", async (event, name, payload) => {
   const type = cards?.typeOf(event.sender);
-  const table = type ? cardActions : from(settingsWin, event.sender) ? settingsActions : from(tourWin, event.sender) ? tourActions : null;
+  const table = type
+    ? cardActions
+    : from(settingsWin, event.sender)
+      ? settingsActions
+      : from(tourWin, event.sender)
+        ? tourActions
+        : from(updateWin, event.sender)
+          ? updateActions
+          : null;
   if (!table) return { ok: false, message: "未知来源" };
   const fn = Object.hasOwn(table, name) ? table[name] : null;
   const result = fn ? await fn(payload && typeof payload === "object" ? payload : {}, type) : null;
@@ -583,6 +752,14 @@ app.whenReady().then(async () => {
   // 接着上次的番茄：重新挂上定时器和托盘提示
   applyPomo({ state: pomoState, effects: [] });
   if (!SMOKE && !initial.tourDone) setTimeout(openTour, 1200);
+  // 一天最多自动查一次更新；刚装好、刚看过教程的时候先别插进来。
+  // 自检时指向假接口（SPW_UPDATE_API），开发版也查，而且早点查。
+  const fakeApi = !!process.env.SPW_UPDATE_API;
+  if ((app.isPackaged || fakeApi) && initial.autoUpdate && Date.now() - initial.lastUpdateCheck > 24 * 3600_000) {
+    setTimeout(() => {
+      if (!tourWin && !settingsWin) void checkUpdate();
+    }, fakeApi ? 1500 : 20_000);
+  }
   powerMonitor.on("resume", () => {
     poller.kick();
     if (pomoState.status === "running") pomoTick();

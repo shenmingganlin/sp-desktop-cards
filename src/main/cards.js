@@ -20,6 +20,7 @@ const MIN_SIZE = {
 };
 const REATTACH_MS = 5000;
 const RECREATE_MS = 1500;
+const INPUT_CHECK_MS = 500;
 
 /**
  * settings 是设置存储；page 是 card.html 的路径；onChange 在卡片显示/隐藏后调用（刷新托盘菜单）。
@@ -34,6 +35,8 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
   let hiddenAll = false;
   let quitting = false;
   let reattachTimer = null;
+  let inputTimer = null;
+  let topHeld = false; // 弹原生对话框时临时取消置顶，别让卡片挡住对话框
 
   const usable = (w) => w && !w.isDestroyed();
   const alive = () => [...wins].filter(([, w]) => usable(w));
@@ -116,7 +119,7 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
     if (!usable(w)) return;
     const m = mode();
     const up = attending.has(type);
-    w.setAlwaysOnTop(m === "top" || up, "floating");
+    w.setAlwaysOnTop((m === "top" && !topHeld) || up, "floating");
     if (m === "desktop") {
       // 不可激活：否则按 Win+D 后卡片成了前台窗口，再按一次就还原不了别的窗口
       w.setFocusable(false);
@@ -145,6 +148,18 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
         if (!w.isFocused()) desktop.sink(w);
       }
     }, REATTACH_MS);
+  }
+
+  function syncInputTimer() {
+    clearInterval(inputTimer);
+    inputTimer = null;
+    if (!desktop.available()) return;
+    // 嵌入桌面时卡片不可激活，Chromium 一旦把接鼠标的子窗口藏起来，左键按下就会被系统连带丢掉。
+    // 这里定时看一眼，藏了就显示回来（不挂消息回调，所以不会影响别的东西）。别的模式窗口能激活，不用管。
+    inputTimer = setInterval(() => {
+      if (mode() !== "desktop") return;
+      for (const [, w] of alive()) desktop.keepClickable(w);
+    }, INPUT_CHECK_MS);
   }
 
   function initialBounds(type) {
@@ -181,7 +196,6 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
       },
     });
     wins.set(type, w);
-    desktop.keepClicks(w);
     w.setMenu(null);
     w.setOpacity(s.opacity);
     applyLimits(type);
@@ -422,6 +436,7 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
     start() {
       for (const type of CARD_TYPES) if (settings.get().cards[type].visible) create(type);
       syncTimer();
+      syncInputTimer();
       screen.on("display-removed", rescue);
       screen.on("display-metrics-changed", rescue);
     },
@@ -429,6 +444,7 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
       quitting = true;
       dragEnd();
       clearInterval(reattachTimer);
+      clearInterval(inputTimer);
       for (const [type] of alive()) remember(type);
     },
     /** 改了显示模式后调用。 */
@@ -440,6 +456,11 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
     setLocked(locked) {
       if (locked) dragEnd();
       for (const [, w] of alive()) w.setResizable(!locked);
+    },
+    /** 弹原生对话框时临时让卡片别置顶（对话框没有置顶，被卡片挡住就点不到了）。 */
+    holdTop(on) {
+      topHeld = !!on;
+      for (const [type] of alive()) applyMode(type);
     },
     setOpacity(opacity) {
       for (const [, w] of alive()) w.setOpacity(opacity);

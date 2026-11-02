@@ -74,6 +74,7 @@
     Chime.play("work").catch(() => {});
   });
   $("tour").addEventListener("click", () => act("openTour"));
+  $("check-update").addEventListener("click", () => act("checkUpdate"));
   $("refresh").addEventListener("click", () => act("refresh"));
   $("token-save").addEventListener("click", async () => {
     const input = $("token");

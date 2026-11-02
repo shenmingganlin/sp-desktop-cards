@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'" />
+    <title>SP 今日小窗 · 下载更新</title>
+    <link rel="stylesheet" href="update.css" />
+  </head>
+  <body>
+    <h1 id="title">正在下载更新</h1>
+    <p id="detail">连上 GitHub 拿安装包…</p>
+    <div id="bar"><i id="fill"></i></div>
+    <footer>
+      <button class="btn" id="cancel" type="button">取消</button>
+      <button class="btn primary" id="close" type="button" hidden>关闭</button>
+    </footer>
+    <script src="update.js"></script>
+  </body>
+</html>

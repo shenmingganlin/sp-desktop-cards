@@ -1,10 +1,14 @@
 // 小窗自己的逻辑：快速新建、番茄钟、吸附拼接、设置迁移。都是纯函数。
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 import * as pomo from "../src/main/pomodoro.js";
 import { INBOX, taskFields } from "../src/main/quickadd.js";
 import { CARD_SIZE, DEFAULTS, GAP, migrate, sanitize } from "../src/main/settings.js";
 import { defaultSpot, followResize, groupOf, isOnScreen, snapMove } from "../src/main/snap.js";
+import { downloadFile, fetchLatest, isNewer, parseVersion, pickAssets } from "../src/main/update.js";
 
 const MIN = 60_000;
 
@@ -206,4 +210,69 @@ test("设置：合并一张卡片、番茄钟按字段收敛", () => {
   const kept = sanitize({ pomodoroSession: { phase: "work", status: "running", endsAt: 1, durationMs: 2, taskId: "t", evil: 1 } });
   assert.ok(!("evil" in kept.pomodoroSession));
   assert.equal(sanitize({ pomodoroSession: null }, kept).pomodoroSession, null);
+});
+
+test("检查更新：版本号比较", () => {
+  assert.deepEqual(parseVersion("v0.2.10"), [0, 2, 10]);
+  assert.deepEqual(parseVersion("0.2.1"), [0, 2, 1]);
+  assert.equal(parseVersion("latest"), null);
+  assert.equal(parseVersion(undefined), null);
+  assert.equal(isNewer("0.2.10", "0.2.9"), true, "按数字比，不是按字符串");
+  assert.equal(isNewer("v0.3.0", "0.2.99"), true);
+  assert.equal(isNewer("0.2.1", "0.2.1"), false);
+  assert.equal(isNewer("0.2.0", "0.2.1"), false);
+  assert.equal(isNewer("nightly", "0.2.1"), false, "认不出来就当没更新");
+});
+
+test("检查更新：从 Release 里挑安装包", () => {
+  const assets = [
+    { name: "sp-today-widget-0.2.2-setup.exe", browser_download_url: "https://x/setup", size: 10 },
+    { name: "sp-today-widget-0.2.2-win-x64.zip", browser_download_url: "https://x/zip", size: 20 },
+    { name: "sp-today-widget-0.2.1-setup.exe", browser_download_url: "https://x/old" },
+  ];
+  const picked = pickAssets({ assets }, "0.2.2");
+  assert.equal(picked.setup.url, "https://x/setup");
+  assert.equal(picked.zip.size, 20);
+  assert.equal(pickAssets({ assets }, "0.2.3").setup, null);
+  assert.equal(pickAssets({}, "0.2.2").zip, null);
+});
+
+test("检查更新：最新版本、404、没网都给出可用的结果", async () => {
+  const release = {
+    tag_name: "v0.2.2",
+    html_url: "https://github.com/x/releases/tag/v0.2.2",
+    assets: [{ name: "sp-today-widget-0.2.2-setup.exe", browser_download_url: "https://x/setup", size: 5 }],
+  };
+  const ok = await fetchLatest({ fetchImpl: async () => ({ ok: true, json: async () => release }) });
+  assert.equal(ok.version, "0.2.2");
+  assert.equal(ok.setup.url, "https://x/setup");
+  assert.equal(ok.page, release.html_url);
+  assert.equal(await fetchLatest({ fetchImpl: async () => ({ ok: false, status: 404 }) }), null);
+  assert.equal(await fetchLatest({ fetchImpl: async () => { throw new Error("offline"); } }), null);
+  assert.equal(await fetchLatest({ fetchImpl: async () => ({ ok: true, json: async () => { throw new Error("bad json"); } }) }), null);
+  assert.equal(await fetchLatest({ fetchImpl: async () => ({ ok: true, json: async () => ({ tag_name: "nope" }) }) }), null);
+  // 预发布和草稿不提示
+  assert.equal(await fetchLatest({ fetchImpl: async () => ({ ok: true, json: async () => ({ ...release, prerelease: true }) }) }), null);
+});
+
+test("检查更新：下载报进度，下完才改名，半路失败不留文件", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "spw-update-"));
+  const body = "0123456789";
+  const response = () => new Response(body, { headers: { "content-length": String(body.length) } });
+  const seen = [];
+  const file = await downloadFile("https://x/setup.exe", dir, "a.exe", { fetchImpl: async () => response(), onProgress: (p) => seen.push(p) });
+  assert.equal(fs.readFileSync(file, "utf8"), body);
+  assert.equal(seen.at(-1), 1, "最后报 100%");
+  assert.deepEqual(fs.readdirSync(dir), ["a.exe"], "不留 .part");
+  // 长度对不上：报错并清理
+  const bad = await downloadFile("https://x/b", dir, "b.exe", {
+    fetchImpl: async () => new Response(body, { headers: { "content-length": "999" } }),
+  }).then(() => "没报错", (e) => e.message);
+  assert.match(bad, /不完整/);
+  assert.deepEqual(fs.readdirSync(dir).sort(), ["a.exe"]);
+  // HTTP 错误
+  const err = await downloadFile("https://x/c", dir, "c.exe", { fetchImpl: async () => ({ ok: false, status: 500 }) }).then(() => "没报错", (e) => e.message);
+  assert.match(err, /500/);
+  assert.ok(fs.existsSync(file));
+  fs.rmSync(dir, { recursive: true, force: true });
 });

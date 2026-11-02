@@ -47,6 +47,9 @@ export const DEFAULTS = Object.freeze({
   pomodoroSession: null, // 打开「重启后接着走」时存进行中的番茄，读的时候由 pomodoro.restore 检查
   tourDone: false, // 看过使用教程
   altHints: 0, // 整组拖动时提示过几次「按住 Alt 只挪一张」
+  autoUpdate: true, // 启动时顺手看看有没有新版本
+  skipVersion: "", // 点过「跳过这个版本」的那个版本号
+  lastUpdateCheck: 0, // 上次检查更新的时间戳，一天最多自动查一次
 });
 
 const clampNumber = (v, min, max, fallback) =>
@@ -111,7 +114,7 @@ export function sanitize(input, base = DEFAULTS) {
   const s = { ...base, cards: cleanCards(null, base.cards), pomodoro: { ...base.pomodoro } };
   if (!input || typeof input !== "object") return s;
   if (MODES.includes(input.mode)) s.mode = input.mode;
-  for (const key of ["locked", "openAtLogin", "showDone", "tourDone"]) {
+  for (const key of ["locked", "openAtLogin", "showDone", "tourDone", "autoUpdate"]) {
     if (typeof input[key] === "boolean") s[key] = input[key];
   }
   s.opacity = clampNumber(input.opacity, 0.3, 1, s.opacity);
@@ -125,6 +128,8 @@ export function sanitize(input, base = DEFAULTS) {
   if (input.cards) s.cards = cleanCards(input.cards, s.cards);
   if (input.pomodoro) s.pomodoro = cleanPomodoro(input.pomodoro, s.pomodoro);
   s.altHints = clampInt(input.altHints, 0, 99, s.altHints);
+  if (typeof input.skipVersion === "string" && input.skipVersion.length < 40) s.skipVersion = input.skipVersion;
+  s.lastUpdateCheck = clampInt(input.lastUpdateCheck, 0, Number.MAX_SAFE_INTEGER, s.lastUpdateCheck);
   if (input.pomodoroSession === null || (input.pomodoroSession && typeof input.pomodoroSession === "object")) {
     const { phase, status, endsAt, remainingMs, durationMs, taskId } = input.pomodoroSession || {};
     s.pomodoroSession = input.pomodoroSession && { phase, status, endsAt, remainingMs, durationMs, taskId };

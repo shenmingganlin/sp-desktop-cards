@@ -28,14 +28,9 @@ function load() {
       SetWindowPos: u.func(`bool SetWindowPos(${H} h, intptr_t after, int x, int y, int cx, int cy, uint32_t f)`),
       GetAsyncKeyState: u.func("int16_t GetAsyncKeyState(int key)"),
       GetSystemMetrics: u.func("int GetSystemMetrics(int index)"),
-      GetWindowLongPtrW: u.func(`intptr_t GetWindowLongPtrW(${H} h, int i)`),
+      IsWindowVisible: u.func(`bool IsWindowVisible(${H} h)`),
+      ShowWindow: u.func(`bool ShowWindow(${H} h, int cmd)`),
     };
-    const c = koffi.load("comctl32.dll");
-    const Proc = koffi.proto(`intptr_t __stdcall SubclassProc(${H} h, uint32_t msg, uintptr_t w, intptr_t l, uintptr_t id, uintptr_t ref)`);
-    api.SetWindowSubclass = c.func(`bool __stdcall SetWindowSubclass(${H} h, SubclassProc *proc, uintptr_t id, uintptr_t ref)`);
-    api.RemoveWindowSubclass = c.func(`bool __stdcall RemoveWindowSubclass(${H} h, SubclassProc *proc, uintptr_t id)`);
-    api.DefSubclassProc = c.func(`intptr_t __stdcall DefSubclassProc(${H} h, uint32_t msg, uintptr_t w, intptr_t l)`);
-    api.subclassProc = koffi.register(subclassProc, koffi.pointer(Proc));
   } catch {
     api = false;
   }
@@ -86,28 +81,22 @@ export function detach(win) {
 }
 
 // ── 左键不被吞 ──
-// 用久了 Chromium 有时会把卡片里的 Chrome_RenderWidgetHostHWND 子窗口藏起来（真机上见过，新开的卡片没有），之后点击直接落在顶层窗口上。
-// 顶层窗口不可激活时，Chromium 对 WM_MOUSEACTIVATE 回 MA_NOACTIVATEANDEAT：按下那一下被系统丢掉，只剩松开。
-// 左键凑不成 click，所以怎么点都没反应；右键菜单是松开时弹的，所以右键好使。
-// 这里给卡片窗口挂一个子类过程，改回 MA_NOACTIVATE：照样不激活，但按下照常送给页面。只管这一条消息。
-const WM_MOUSEACTIVATE = 0x0021;
-const WM_NCDESTROY = 0x0082;
-const MA_NOACTIVATE = 3;
-const GWL_EXSTYLE = -20;
-const WS_EX_NOACTIVATE = 0x08000000n;
-const SUBCLASS_ID = 0x5350; // "SP"
+// 用久了 Chromium 有时会把卡片里接鼠标的子窗口（Chrome_RenderWidgetHostHWND）藏起来（真机上见过，新开的卡片没有），
+// 之后点击直接落在不可激活的顶层窗口上，按下那一下被系统连带丢掉，怎么点都没反应；右键是松开时弹菜单的，所以右键好使。
+// 0.2.1 试过用 SetWindowSubclass 改 WM_MOUSEACTIVATE 的返回值：点是好了，但 koffi 的 JS 回调会在菜单这种模态消息循环里
+// 被重入，主进程直接崩掉（0xC0000005 / 0xC0000409）。所以改成定时把被藏起来的子窗口显示出来：不挂消息回调，点照常送到页面，
+// 卡片也照样不抢前台。
+const SW_SHOWNOACTIVATE = 4;
 
-function subclassProc(h, msg, w, l, id) {
-  if (msg === WM_MOUSEACTIVATE && (big(api.GetWindowLongPtrW(h, GWL_EXSTYLE)) & WS_EX_NOACTIVATE)) return MA_NOACTIVATE;
-  if (msg === WM_NCDESTROY) api.RemoveWindowSubclass(h, api.subclassProc, id);
-  return api.DefSubclassProc(h, msg, w, l);
-}
-
-/** 让不可激活的卡片也能收到左键按下。每个窗口调一次，重复调用无害。 */
-export function keepClicks(win) {
+/** 卡片里的子窗口被藏起来了就重新显示。调用方按需定时调用；窗口没显示时不动。 */
+export function keepClickable(win) {
   const a = load();
-  if (!a || win.isDestroyed()) return false;
-  return a.SetWindowSubclass(hwndOf(win), a.subclassProc, SUBCLASS_ID, 0);
+  if (!a || win.isDestroyed() || !win.isVisible()) return false;
+  const child = big(a.FindWindowExW(hwndOf(win), 0, "Chrome_RenderWidgetHostHWND", null));
+  if (!child) return false;
+  if (a.IsWindowVisible(child)) return true;
+  a.ShowWindow(child, SW_SHOWNOACTIVATE);
+  return true;
 }
 
 /** 沉到最底层（仍在桌面之上）。 */

@@ -1,7 +1,7 @@
 {
   "name": "sp-today-widget",
   "productName": "SP 今日小窗",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Super Productivity 的桌面卡片：专注与番茄钟、今日、规划、日程、月历，卡片可拼接吸附，可置顶或嵌入桌面。",
   "main": "src/main/main.js",
   "type": "module",
@@ -14,6 +14,7 @@
     "smoke": "node scripts/smoke.mjs",
     "ui-check": "node scripts/ui-check.mjs",
     "desktop-check": "node scripts/desktop-check.mjs",
+    "update-check": "node scripts/update-check.mjs",
     "icons": "python scripts/icons.py"
   },
   "devDependencies": {

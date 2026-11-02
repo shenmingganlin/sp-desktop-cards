@@ -65,6 +65,15 @@ fs.writeFileSync(path.join(userData, "settings.json"), JSON.stringify({
 }));
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+/** 反复试 fn 直到它返回真，最多等 ms 毫秒。 */
+const waitFor = async (fn, ms) => {
+  const until = Date.now() + ms;
+  while (Date.now() < until) {
+    if (fn()) return true;
+    await sleep(100);
+  }
+  return fn();
+};
 const key = (vk) => {
   keybdEvent(vk, 0, 0, 0);
   keybdEvent(vk, 0, 2, 0);
@@ -113,8 +122,12 @@ try {
   const card = BigInt(info.hwnd);
   const cx = info.b.x + info.b.width / 2;
   const cy = info.b.y + 200;
+  // 盖板窗口：复用一个，按过 Win+D 后被收起来时重新显示出来（否则 focus 不生效）
   const cover = () => app.evaluate(({ BrowserWindow }, b) => {
-    const w = new BrowserWindow({ ...b, width: 500, height: 500, show: true, backgroundColor: "#335" });
+    const box = { ...b, width: 500, height: 500 };
+    const w = globalThis.__cover && !globalThis.__cover.isDestroyed() ? globalThis.__cover : new BrowserWindow({ ...box, show: true, backgroundColor: "#335" });
+    w.setBounds(box);
+    w.show();
     globalThis.__cover = w;
   }, { x: info.b.x - 50, y: info.b.y - 50 });
   const uncover = () => app.evaluate(() => globalThis.__cover?.destroy());
@@ -151,13 +164,15 @@ try {
       assert.notEqual(rootAt(cx, cy), card, `卡片应该又被盖住（前台：${describe(now)}）`);
     });
 
-    // 用久了 Chromium 会把卡片里的子窗口藏起来，之后左键按下被系统吞掉，怎么点都没反应（0.2.0 的 bug）
-    await check("子窗口藏起来后，显示桌面时左键照样点得动", async () => {
+    // 用久了 Chromium 会把卡片里的子窗口藏起来，之后左键按下被系统吞掉，怎么点都没反应（0.2.0 的 bug）。
+    // 0.2.2 起定时把被藏起来的子窗口显示回来，这里模拟被藏起来，看它会不会自己回来、回来之后点得动。
+    await check("子窗口被藏起来后会自己回来，左键照样点得动", async () => {
       await winD();
       const child = FindWindowExW(card, 0, "Chrome_RenderWidgetHostHWND", null);
       assert.ok(child, "没找到 Chrome_RenderWidgetHostHWND");
       ShowWindow(child, 0);
-      await sleep(300);
+      const back = await waitFor(() => IsWindowVisible(FindWindowExW(card, 0, "Chrome_RenderWidgetHostHWND", null)), 4000);
+      assert.ok(back, "子窗口没被重新显示出来");
       await page.evaluate(() => {
         window.__downs = 0;
         document.addEventListener("pointerdown", () => window.__downs++, true);
@@ -168,7 +183,6 @@ try {
       assert.equal(rootAt(x, y), card, "任务上面盖着别的窗口，不点");
       for (let i = 0; i < 3; i++) await click(x + i, y);
       assert.equal(await page.evaluate(() => window.__downs), 3, "左键按下没送到页面");
-      ShowWindow(child, 4);
       await winD();
     });
 
@@ -201,6 +215,7 @@ try {
   }
 
   await check("用完后卡片又沉到最底下、不可激活", async () => {
+    await cover();
     await app.evaluate(() => globalThis.__cover.focus());
     await sleep(600);
     assert.notEqual(rootAt(cx, cy), card, "卡片应该在盖着它的窗口下面");
