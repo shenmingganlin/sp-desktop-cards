@@ -61,7 +61,7 @@ try {
   const cardOf = (p) => new URL(p.url()).searchParams.get("card");
   for (let i = 0; i < 100 && !app.windows().some((p) => cardOf(p) === "today"); i++) await sleep(100);
   const today = app.windows().find((p) => cardOf(p) === "today");
-  await today.locator(".row").first().waitFor();
+  await today.locator(".row").first().waitFor({ timeout: 20000 });
   await sleep(1200);
 
   // 开一个普通窗口（设置）当参照：卡片应该压在它下面
@@ -139,6 +139,21 @@ try {
     assert.equal(await atDesktopLayer(), true, "卡片应该回到桌面层，不压在别的窗口上面");
   });
 
+  await check("点菜单时，其他卡片不跟着浮到普通窗口上面", async () => {
+    const normal = await hwndOf("settings.html");
+    assert.ok(normal, "需要设置窗口当参照");
+    const others = [await hwndOf("card=focus"), await hwndOf("card=month")];
+    for (const h of others) assert.equal(above(h, normal), false, "开菜单前其他卡片不该在设置窗口上面");
+    await today.locator("#menu").click();
+    await sleep(900);
+    for (const h of others) assert.equal(above(h, normal), false, "开菜单时其他卡片被一起抬到设置窗口上面了");
+    assert.equal(above(await hwndOf("card=today"), normal), true, "弹菜单的这张应该在设置窗口上面");
+    await esc();
+    await sleep(1600);
+    for (const h of others) assert.equal(above(h, normal), false, "关菜单后其他卡片应该还在设置窗口下面");
+    assert.equal(await atDesktopLayer(), true, "关菜单后这张卡片应该回到桌面层");
+  });
+
   await check("菜单：开着不关放 6 秒，卡片也不消失", async () => {
     await watch();
     await today.locator("#menu").click();
@@ -178,6 +193,33 @@ try {
     });
     await sleep(300);
     assert.equal(await atDesktopLayer(), true, "点回普通窗口后卡片仍应在桌面层");
+  });
+
+  // 按一次 Win+D 显示桌面；桌面显示期间普通窗口被压在桌面上，只能再按一次 Win+D 还原
+  const winD = async () => {
+    keybdEvent(0x5b, 0, 0, 0); // Win
+    await sleep(50);
+    keybdEvent(0x44, 0, 0, 0); // D
+    await sleep(50);
+    keybdEvent(0x44, 0, 2, 0);
+    await sleep(50);
+    keybdEvent(0x5b, 0, 2, 0);
+  };
+
+  await check("Win+D 显示桌面：卡片留在桌面上、不消失", async () => {
+    await watch();
+    assert.equal(await atDesktopLayer(), true, "起点应该在桌面层");
+    await winD();
+    await sleep(1200);
+    assert.equal(await visible(), true, "Win+D 之后卡片应该还在");
+    // 此刻桌面在最前面，卡片跟着浮上来，压在普通窗口上面是正确的
+    assert.deepEqual(await events(), [], "Win+D 期间不该 hide/show");
+    await winD();
+    await sleep(900);
+    assert.equal(await visible(), true, "还原之后卡片应该还在");
+    assert.equal(await atDesktopLayer(), true, "还原之后卡片应该回到桌面层");
+    await sleep(3000);
+    assert.equal(await atDesktopLayer(), true, "还原之后过几秒也要回到桌面层");
   });
 
   await check("菜单关掉后放 8 秒（5 秒兜底跑两轮），卡片仍贴着桌面", async () => {

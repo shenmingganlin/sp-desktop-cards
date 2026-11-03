@@ -158,7 +158,8 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
           leaveRaised(type);
           continue;
         }
-        if (!w.isFocused()) desktop.sink(w);
+        // Win+D 显示桌面时 shell 被抬起来，这时候沉底会把卡片压到桌面后面（看起来是全部消失）。
+        if (!w.isFocused() && !desktop.desktopIsRaised()) desktop.sink(w);
       }
     }, REATTACH_MS);
     // 点桌面时 Windows 会把挂在桌面名下的卡片一起抬到普通窗口上面（owner 方案的固有行为）。
@@ -173,6 +174,8 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
     };
     desktopGuard = setInterval(() => {
       if (mode() !== "desktop" || hiddenAll) return;
+      // 按 Win+D 显示桌面时，桌面窗口本身被抬到前面，卡片跟着上浮是对的，不能沉底。
+      if (desktop.desktopIsRaised()) return;
       const onDesktop = desktop.foregroundIsDesktop();
       // 刚切到桌面：立刻沉一次。之后每半秒再补一次，防止连点桌面时系统又抬一次。
       if (onDesktop && (!lastDesktop || ++ticks >= DESKTOP_GUARD_REPEAT)) {
@@ -520,6 +523,11 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
       w.setFocusable(true);
       raised.add(type);
       w.focus();
+      // 卡片的 owner 都是桌面，激活一张会把同组的其他卡片一起抬到普通窗口上面。
+      // 这里把其余的立刻沉回去，只留弹出菜单的这张在上面。
+      for (const [t, other] of alive()) {
+        if (t !== type && other.isVisible() && !attending.has(t)) desktop.sink(other);
+      }
     }
     menu.popup({
       window: w,

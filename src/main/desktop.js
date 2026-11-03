@@ -105,6 +105,19 @@ export function keepClickable(win) {
 }
 
 /**
+ * 桌面窗口现在是不是被抬起来了（按 Win+D 显示桌面时 shell 会升到 Z 序前面）。
+ * 平时 shell 是 Z 序最后一个（下面没有窗口）；被抬起来时它后面还有窗口。
+ * 这时候不能把卡片沉底：卡片会沉到桌面后面，看起来就是全消失了。
+ */
+export function desktopIsRaised() {
+  const a = load();
+  if (!a) return false;
+  const shell = big(a.GetShellWindow());
+  if (!shell) return false;
+  return big(a.GetWindow(shell, GW_HWNDNEXT)) !== 0n;
+}
+
+/**
  * 现在前台是不是桌面（Progman / WorkerW / 桌面图标层 SHELLDLL_DefView，或它们所属的窗口）。
  * 点桌面时系统会把挂在桌面名下的卡片一起抬到普通窗口上面，这个函数用来及时发现这件事。
  */
