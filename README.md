@@ -104,6 +104,7 @@ npm run smoke           # 用假 SP 启动真实窗口，每张卡片截图，�
 npm run ui-check        # 用 Playwright 点一遍：勾选、计时、番茄钟、新建、翻页、折叠、拖动、设置、断线
 npm run menu-check      # 嵌入桌面模式：菜单/点别处/连点/Win+D/外力抬起，卡片都留在桌面层不动
 npm run desktop-check   # 嵌入桌面模式真机检查（会按 Win+D、移动鼠标，运行时别碰电脑）
+npm run update-check    # 检查更新：手动那条（发现→下载→问要不要装）+ 启动后自动弹窗那条（真弹原生对话框）
 npm run dist            # 打 Windows 安装包和 zip，输出到 dist/
 ```
 
