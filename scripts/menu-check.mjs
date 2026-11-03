@@ -18,6 +18,8 @@ const BP = "uintptr_t";
 const GetTopWindow = user32.func(`${BP} GetTopWindow(${BP} h)`);
 const GetWindow = user32.func(`${BP} GetWindow(${BP} h, uint32_t cmd)`);
 const GetShellWindow = user32.func(`${BP} GetShellWindow()`);
+const FindWindowExW = user32.func(`${BP} FindWindowExW(${BP} parent, ${BP} after, str16 cls, str16 name)`);
+const SetForegroundWindow = user32.func("bool SetForegroundWindow(uintptr_t h)");
 const SetCursorPos = user32.func("bool SetCursorPos(int x, int y)");
 const mouseEvent = user32.func("void mouse_event(uint32_t f, uint32_t dx, uint32_t dy, uint32_t d, uintptr_t e)");
 const VK_ESCAPE = 0x1b;
@@ -158,6 +160,24 @@ try {
     assert.deepEqual(await events(), [], "点别处关菜单的整个过程中不该 hide/show");
     assert.equal(await visible(), true, "卡片应该还在");
     assert.equal(await atDesktopLayer(), true, "点别处之后卡片应该还在桌面层");
+  });
+
+  await check("点桌面（Progman 变前台）之后，卡片不浮到普通窗口上面", async () => {
+    const shell = BigInt(GetShellWindow());
+    const defView = BigInt(FindWindowExW(shell, 0, "SHELLDLL_DefView", ""));
+    // 先确认起点是在桌面层
+    assert.equal(await atDesktopLayer(), true, "起点应该在桌面层");
+    SetForegroundWindow(defView || shell);
+    // 16ms 守卫应该几乎立刻沉回去；给 300ms 容错
+    await sleep(300);
+    assert.equal(await atDesktopLayer(), true, "点桌面之后卡片被抬到普通窗口上面了");
+    // 再点回普通窗口，确认还能正常
+    await app.evaluate(({ BrowserWindow }) => {
+      const w = BrowserWindow.getAllWindows().find((x) => x.webContents.getURL().includes("settings.html"));
+      if (w) w.focus();
+    });
+    await sleep(300);
+    assert.equal(await atDesktopLayer(), true, "点回普通窗口后卡片仍应在桌面层");
   });
 
   await check("菜单关掉后放 8 秒（5 秒兜底跑两轮），卡片仍贴着桌面", async () => {

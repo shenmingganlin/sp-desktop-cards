@@ -32,6 +32,7 @@ function load() {
       ShowWindow: u.func(`bool ShowWindow(${H} h, int cmd)`),
       GetForegroundWindow: u.func(`${H} GetForegroundWindow()`),
       GetTopWindow: u.func(`${H} GetTopWindow(${H} h)`),
+      GetClassNameW: u.func("int GetClassNameW(uintptr_t h, str16 buf, int max)"),
     };
   } catch {
     api = false;
@@ -101,6 +102,22 @@ export function keepClickable(win) {
   if (a.IsWindowVisible(child)) return true;
   a.ShowWindow(child, SW_SHOWNOACTIVATE);
   return true;
+}
+
+/**
+ * 现在前台是不是桌面（Progman / WorkerW / 桌面图标层 SHELLDLL_DefView，或它们所属的窗口）。
+ * 点桌面时系统会把挂在桌面名下的卡片一起抬到普通窗口上面，这个函数用来及时发现这件事。
+ */
+export function foregroundIsDesktop() {
+  const a = load();
+  if (!a) return false;
+  const fg = big(a.GetForegroundWindow());
+  if (!fg) return false;
+  // 先看窗口类名，这条路只调一次 GetClassNameW，适合 16ms 一次的高频检查。
+  const buf = Buffer.alloc(64);
+  if (!a.GetClassNameW(fg, buf, 63)) return false;
+  const name = buf.toString("utf16le").replace(/\0.*$/, "");
+  return name === "Progman" || name === "WorkerW" || name === "SHELLDLL_DefView";
 }
 
 /** 这张卡片现在是不是真正的前台窗口。Electron 的 isFocused 有时会和 Windows 实际状态对不上。 */

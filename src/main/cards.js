@@ -23,6 +23,8 @@ const MIN_SIZE = {
 const REATTACH_MS = 5000;
 const RECREATE_MS = 1500;
 const INPUT_CHECK_MS = 500;
+const DESKTOP_GUARD_MS = 16; // 点桌面后多快把卡片沉回去；16ms 约一帧，肉眼看不出来
+const DESKTOP_GUARD_REPEAT = 31; // 桌面一直是前台时，约每 0.5 秒再补沉一次
 
 /**
  * settings 是设置存储；page 是 card.html 的路径；onChange 在卡片显示/隐藏后调用（刷新托盘菜单）。
@@ -39,6 +41,7 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
   let quitting = false;
   let reattachTimer = null;
   let inputTimer = null;
+  let desktopGuard = null;
   let topHeld = false; // 弹原生对话框时临时取消置顶，别让卡片挡住对话框
 
   const usable = (w) => w && !w.isDestroyed();
@@ -142,6 +145,8 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
   function syncTimer() {
     clearInterval(reattachTimer);
     reattachTimer = null;
+    clearInterval(desktopGuard);
+    desktopGuard = null;
     if (mode() !== "desktop") return;
     // Explorer 重启后桌面窗口换了，要重新挂上去
     reattachTimer = setInterval(() => {
@@ -156,6 +161,26 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
         if (!w.isFocused()) desktop.sink(w);
       }
     }, REATTACH_MS);
+    // 点桌面时 Windows 会把挂在桌面名下的卡片一起抬到普通窗口上面（owner 方案的固有行为）。
+    // 5 秒兜底太慢，这里 16ms 盯一次前台，桌面一被激活就立刻沉回去，肉眼看不出卡片动过。
+    let lastDesktop = false;
+    let ticks = 0;
+    const sinkAll = () => {
+      for (const [type, w] of alive()) {
+        if (!w.isVisible() || attending.has(type) || raised.has(type)) continue;
+        desktop.sink(w);
+      }
+    };
+    desktopGuard = setInterval(() => {
+      if (mode() !== "desktop" || hiddenAll) return;
+      const onDesktop = desktop.foregroundIsDesktop();
+      // 刚切到桌面：立刻沉一次。之后每半秒再补一次，防止连点桌面时系统又抬一次。
+      if (onDesktop && (!lastDesktop || ++ticks >= DESKTOP_GUARD_REPEAT)) {
+        ticks = 0;
+        sinkAll();
+      }
+      lastDesktop = onDesktop;
+    }, DESKTOP_GUARD_MS);
   }
 
   function syncInputTimer() {
@@ -520,6 +545,7 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
       resizeEnd();
       clearInterval(reattachTimer);
       clearInterval(inputTimer);
+      clearInterval(desktopGuard);
       for (const [type] of alive()) remember(type);
     },
     /** 改了显示模式后调用。 */
