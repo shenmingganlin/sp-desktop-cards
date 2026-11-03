@@ -14,6 +14,7 @@ import { createPoller } from "./poller.js";
 import { taskFields } from "./quickadd.js";
 import { CARD_TYPES, createSettingsStore, MODES } from "./settings.js";
 import { createClient, DEFAULT_BASE_URL, HINTS } from "./sp-client.js";
+import { buildStats } from "./stats.js";
 import * as theme from "./theme.js";
 import { isValidToken, readSpToken } from "./token.js";
 import * as updateCheck from "./update.js";
@@ -144,6 +145,7 @@ function cardView(type, todayView) {
       dayStartHour: s.dayStartHour, day: ui.scheduleDay, startHour: s.scheduleStartHour, endHour: s.scheduleEndHour,
     }));
   }
+  if (type === "stats") return cached(type, key, () => buildStats(raw, { today: currentDay(), now: raw.now, dayStartHour: s.dayStartHour }));
   return cached(type, key, () => buildMonth(raw, { dayStartHour: s.dayStartHour, month: ui.month, selected: ui.selected }));
 }
 

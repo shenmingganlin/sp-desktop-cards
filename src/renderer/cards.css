@@ -105,3 +105,29 @@
 .dots i.deadline { background: var(--danger); }
 .month-day { margin-top: 4px; border-top: var(--hairline) solid var(--line); }
 .month-day .day-head .icon { visibility: visible; }
+
+/* ── 统计 ── */
+.stats-today { padding: 8px 12px 2px; }
+.stats-big { font-weight: 600; font-size: 26px; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.stats-line { margin-top: 3px; font-size: 12px; color: var(--dim); }
+.stats-week { margin-top: 6px; }
+.stats-chart { display: flex; align-items: flex-end; gap: 4px; padding: 2px 8px 0; }
+.stats-col { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; }
+.stats-area { display: flex; align-items: flex-end; justify-content: center; width: 100%; height: 76px; }
+.stats-bar {
+  display: block;
+  width: 70%;
+  max-width: 22px;
+  min-height: 2px;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  background: var(--focus);
+  opacity: 0.55;
+  transition: height 0.25s ease;
+}
+.stats-col.today .stats-bar { background: var(--accent); opacity: 1; }
+.stats-bar.zero { background: var(--line-strong); opacity: 0.45; }
+.stats-col:hover .stats-bar { opacity: 1; }
+.stats-day { margin-top: 4px; font-size: 10px; color: var(--mute); }
+.stats-col.today .stats-day { color: var(--accent); font-weight: 600; }
+.stats-total { padding: 6px 12px 8px; font-size: 11px; color: var(--dim); }
+.stats-empty { padding: 6px 12px 10px; font-size: 12px; color: var(--mute); }

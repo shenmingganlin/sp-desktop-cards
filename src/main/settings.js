@@ -9,13 +9,14 @@ import path from "node:path";
 import { DEFAULT_POMODORO } from "./pomodoro.js";
 import { normalizeSkin } from "./theme.js";
 
-export const CARD_TYPES = ["focus", "today", "planner", "schedule", "month"];
+export const CARD_TYPES = ["focus", "today", "planner", "schedule", "month", "stats"];
 export const CARD_SIZE = {
   focus: { width: 320, height: 132 },
   today: { width: 320, height: 380 },
   planner: { width: 320, height: 460 },
   schedule: { width: 320, height: 520 },
   month: { width: 320, height: 420 },
+  stats: { width: 320, height: 300 },
 };
 export const MODES = ["top", "normal", "desktop"];
 export const GAP = 6; // 拼在一起的卡片之间的间距
@@ -26,6 +27,7 @@ const DEFAULT_CARDS = Object.freeze({
   planner: { visible: false, bounds: null, collapsed: false },
   schedule: { visible: false, bounds: null, collapsed: false },
   month: { visible: false, bounds: null, collapsed: false },
+  stats: { visible: false, bounds: null, collapsed: false },
 });
 
 export const DEFAULTS = Object.freeze({

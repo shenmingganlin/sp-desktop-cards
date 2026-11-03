@@ -279,6 +279,20 @@ try {
     assert.ok(near(b.x, 1018) && near(b.y, 40), `月历回到原位，实际 ${JSON.stringify(b)}`);
   });
 
+  await check("设置：打开统计卡片，今日用时和 7 天柱状图画出来", async () => {
+    await settingsPage.locator("[data-card='stats']").check();
+    await until(() => app.windows().some((p) => cardOf(p) === "stats"), "统计窗口");
+    const stats = app.windows().find((p) => cardOf(p) === "stats");
+    // 假 SP 的今天：写周报 20 + 改版本号 10 + 写更新说明 5 + 晨练 30 = 65 分钟
+    await stats.locator(".stats-big", { hasText: "1 小时 5 分" }).waitFor();
+    assert.equal(await stats.locator(".stats-chart .stats-col").count(), 7);
+    assert.equal(await stats.locator(".stats-col.today").count(), 1);
+    await stats.locator(".stats-total", { hasText: "7 天" }).waitFor();
+    await shot(stats, "stats");
+    await settingsPage.locator("[data-card='stats']").uncheck();
+    await until(() => !app.windows().some((p) => cardOf(p) === "stats"), "统计窗口关掉");
+  });
+
   await check("设置：显示方式改成普通窗口再改回置顶", async () => {
     const onTop = () => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().filter((w) => w.webContents.getURL().includes("card=")).map((w) => w.isAlwaysOnTop()));
     assert.ok((await onTop()).every(Boolean));
@@ -328,8 +342,10 @@ try {
   SetCursorPos(500, 700);
   await sleep(100);
   const p = await cursor();
-  const calibrated = near(p.x, 500) && near(p.y, 700);
-  if (!calibrated) results.push(`✖ 拖动：系统缩放下光标坐标对不上（设 500,700 读到 ${p.x},${p.y}），跳过拖动检查`);
+  // 桌面被别的程序占着时不要让它收到乱点的鼠标：设 SPW_SKIP_DRAG=1 跳过这一段。
+  const calibrated = !process.env.SPW_SKIP_DRAG && near(p.x, 500) && near(p.y, 700);
+  if (process.env.SPW_SKIP_DRAG) results.push("－ 拖动/改大小：设了 SPW_SKIP_DRAG，跳过鼠标检查");
+  else if (!calibrated) results.push(`✖ 拖动：系统缩放下光标坐标对不上（设 500,700 读到 ${p.x},${p.y}），跳过拖动检查`);
 
   if (calibrated) {
     await check("拖动：拼在一起的五张卡片整组一起走", async () => {
