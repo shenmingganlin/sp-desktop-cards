@@ -233,9 +233,9 @@ try {
     await uncover();
   });
 
-  // 0.2.4：从卡片菜单里操作完（比如切换显示方式），卡片曾经会留在其他窗口上面。
-  // 菜单关掉后必须沉回桌面层并变回不可激活。
-  await check("打开卡片菜单再关掉，卡片不会被留在其他窗口上面", async () => {
+  // 从卡片菜单里操作完（比如切换显示方式），卡片不能留在其他窗口上面。
+  // 桌面模式下菜单不需要激活卡片：菜单自己是顶层窗口，卡片全程不可激活、留在桌面层。
+  await check("打开卡片菜单再关掉，卡片始终不激活、不跑到别的窗口上面", async () => {
     const r = await page.locator("#menu").boundingBox();
     const x = info.b.x + r.x + r.width / 2;
     const y = info.b.y + r.y + r.height / 2;
@@ -246,13 +246,12 @@ try {
       const w = BrowserWindow.getAllWindows().find((x) => x.webContents.getURL().includes("card=today"));
       return { focusable: w.isFocusable(), top: w.isAlwaysOnTop() };
     });
-    assert.equal((await state()).focusable, true, "菜单没打开（卡片没进入临时可激活）");
+    assert.equal((await state()).focusable, false, "开菜单时卡片被激活了");
     key(0x1b); // Esc 关掉菜单
     await sleep(1200);
     await cover();
     await app.evaluate(() => globalThis.__cover.focus());
-    // 等 5 秒的兜底定时器跑一轮
-    await sleep(5500);
+    await sleep(1200);
     assert.notEqual(rootAt(cx, cy), card, "卡片还压在别的窗口上面");
     const st = await state();
     assert.equal(st.focusable, false, "卡片还留在可激活状态");

@@ -23,8 +23,7 @@ const MIN_SIZE = {
 const REATTACH_MS = 5000;
 const RECREATE_MS = 1500;
 const INPUT_CHECK_MS = 500;
-const DESKTOP_GUARD_MS = 16; // 点桌面后多快把卡片沉回去；16ms 约一帧，肉眼看不出来
-const DESKTOP_GUARD_REPEAT = 31; // 桌面一直是前台时，约每 0.5 秒再补沉一次
+const SETTLE_MS = 16; // 桌面层多久校一次；16ms 约一帧，点桌面把卡片带起来也看不出来
 
 /**
  * settings 是设置存储；page 是 card.html 的路径；onChange 在卡片显示/隐藏后调用（刷新托盘菜单）。
@@ -34,14 +33,14 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
   const last = new Map(); // type → 上次已知的外框，用来算改大小前后的差
   const closing = new Set(); // 主动关掉的卡片，关掉后不要重建
   const attending = new Set(); // 番茄钟到点时临时浮到最上面的卡片
-  const raised = new Set(); // 因为菜单/打字临时抬高过、还没放回桌面层的卡片
+  const typing = new Set(); // 正在其中打字的卡片（快速新建）；桌面模式下唯一允许激活的情形
   let applying = 0; // 正在由这里改位置/大小，期间收到的 move/resize 事件不当作用户操作
   let drag = null;
   let hiddenAll = false;
   let quitting = false;
   let reattachTimer = null;
   let inputTimer = null;
-  let desktopGuard = null;
+  let settleTimer = null;
   let topHeld = false; // 弹原生对话框时临时取消置顶，别让卡片挡住对话框
 
   const usable = (w) => w && !w.isDestroyed();
@@ -120,70 +119,66 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
     });
   }
 
+  /**
+   * 桌面模式下，卡片该待的位置只有一个：紧贴桌面窗口上方。
+   * 这里是唯一决定这件事的地方——点桌面、Win+D、输入法抢前台、别的程序把栈搅乱、
+   * 菜单开关、显示隐藏，全部收敛到这一个判断，没有第二条路径去改 Z 序。
+   * 只修不在位置上的：已经在的地方不动，免得每帧重设打断这块区域的重绘。
+   */
+  function settle() {
+    if (mode() !== "desktop" || hiddenAll) return;
+    const list = alive();
+    const windows = list.map(([, w]) => w);
+    for (const [type, w] of list) {
+      // 番茄钟浮起来的、正在打字的，本来就要在普通窗口上面，不管
+      if (!w.isVisible() || attending.has(type) || typing.has(type)) continue;
+      if (!desktop.atDesktopLayer(w, windows)) desktop.toDesktopLayer(w);
+    }
+  }
+
   function applyMode(type) {
     const w = wins.get(type);
     if (!usable(w)) return;
     const m = mode();
-    const up = attending.has(type);
-    w.setAlwaysOnTop((m === "top" && !topHeld) || up, "floating");
+    // 番茄钟浮起来时要摘掉桌面 owner：owner 是桌面，系统会把它压回桌面那一层。
+    // 打字不摘——摘了就得等失焦才挂回来，中途按 Win+D 卡片就不跟着走了。
+    const lifted = attending.has(type);
+    w.setAlwaysOnTop((m === "top" && !topHeld) || (m === "desktop" && attending.has(type)), "floating");
     if (m === "desktop") {
-      // 不可激活：否则按 Win+D 后卡片成了前台窗口，再按一次就还原不了别的窗口
-      w.setFocusable(false);
-      // 挂在桌面下面时系统会把它压回去，置顶不住；浮上来期间先摘下来，回去时再挂上
-      if (up) {
-        desktop.detach(w);
-      } else {
-        desktop.attach(w);
-        if (w.isVisible()) desktop.sink(w);
-      }
+      // 不可激活：否则按 Win+D 后卡片成了前台窗口，再按一次就还原不了别的窗口。
+      // 菜单不需要激活卡片（菜单自己是顶层窗口），只有打字要，由 requestFocus 单独放开。
+      w.setFocusable(typing.has(type));
+      if (lifted) desktop.detach(w);
+      else desktop.attach(w);
     } else {
       desktop.detach(w);
       w.setFocusable(true);
     }
+    settle();
   }
 
   function syncTimer() {
     clearInterval(reattachTimer);
     reattachTimer = null;
-    clearInterval(desktopGuard);
-    desktopGuard = null;
+    clearInterval(settleTimer);
+    settleTimer = null;
     if (mode() !== "desktop") return;
-    // Explorer 重启后桌面窗口换了，要重新挂上去
+    // Explorer 重启后桌面窗口会换，得重新挂上去；顺便校一次位置。
     reattachTimer = setInterval(() => {
       for (const [type, w] of alive()) {
         if (!w.isVisible() || attending.has(type)) continue;
         desktop.attach(w);
-        // 菜单关掉的回调偶尔不触发，抬高过的卡片在这里兜底放回去。
-        if (raised.has(type) && !desktop.isForeground(w)) {
-          leaveRaised(type);
-          continue;
-        }
-        // Win+D 显示桌面时 shell 被抬起来，这时候沉底会把卡片压到桌面后面（看起来是全部消失）。
-        if (!w.isFocused() && !desktop.desktopIsRaised()) desktop.sink(w);
       }
+      // 打字状态靠 blur 释放，blur 偶尔不触发，这里兜一下
+      for (const type of [...typing]) {
+        const w = wins.get(type);
+        if (usable(w) && w.isFocused()) continue;
+        typing.delete(type);
+        if (usable(w)) w.setFocusable(false);
+      }
+      settle();
     }, REATTACH_MS);
-    // 点桌面时 Windows 会把挂在桌面名下的卡片一起抬到普通窗口上面（owner 方案的固有行为）。
-    // 5 秒兜底太慢，这里 16ms 盯一次前台，桌面一被激活就立刻沉回去，肉眼看不出卡片动过。
-    let lastDesktop = false;
-    let ticks = 0;
-    const sinkAll = () => {
-      for (const [type, w] of alive()) {
-        if (!w.isVisible() || attending.has(type) || raised.has(type)) continue;
-        desktop.sink(w);
-      }
-    };
-    desktopGuard = setInterval(() => {
-      if (mode() !== "desktop" || hiddenAll) return;
-      // 按 Win+D 显示桌面时，桌面窗口本身被抬到前面，卡片跟着上浮是对的，不能沉底。
-      if (desktop.desktopIsRaised()) return;
-      const onDesktop = desktop.foregroundIsDesktop();
-      // 刚切到桌面：立刻沉一次。之后每半秒再补一次，防止连点桌面时系统又抬一次。
-      if (onDesktop && (!lastDesktop || ++ticks >= DESKTOP_GUARD_REPEAT)) {
-        ticks = 0;
-        sinkAll();
-      }
-      lastDesktop = onDesktop;
-    }, DESKTOP_GUARD_MS);
+    settleTimer = setInterval(settle, SETTLE_MS);
   }
 
   function syncInputTimer() {
@@ -244,12 +239,10 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
     w.on("move", () => onMoved(type, w));
     w.on("resize", () => onResized(type, w));
     w.on("blur", () => {
-      // 嵌入桌面时为了打字/菜单临时允许激活过，失去焦点后沉回去
-      if (mode() !== "desktop" || !usable(w)) return;
-      w.setFocusable(false);
-      if (attending.has(type)) return;
-      if (raised.has(type)) leaveRaised(type);
-      else desktop.sink(w);
+      // 桌面模式下卡片本来就不该被激活，只有快速新建打字时会；失焦就把可激活还回去。
+      if (mode() !== "desktop" || !usable(w) || !typing.has(type)) return;
+      typing.delete(type);
+      applyMode(type);
     });
     w.on("close", (e) => {
       // Alt+F4 只是隐藏这张卡片
@@ -261,6 +254,7 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
       if (wins.get(type) === w) wins.delete(type);
       last.delete(type);
       attending.delete(type);
+      typing.delete(type);
       const intended = closing.delete(type);
       // 不是我们关的（比如嵌入桌面时 Explorer 重启，把挂在它下面的窗口一起销毁了）：过一会儿重建
       if (quitting || intended) return;
@@ -271,7 +265,7 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
     w.once("ready-to-show", () => {
       if (hiddenAll || !usable(w)) return;
       w.showInactive();
-      if (mode() === "desktop" && !attending.has(type)) desktop.sink(w);
+      settle();
     });
     w.loadFile(page, { query: { card: type, theme: themeId() } });
     return w;
@@ -432,7 +426,7 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
     hiddenAll = true;
     dragEnd();
     attending.clear();
-    // raised 不清：藏起来再显示时，抬高过的卡片还要靠它放回桌面层
+    typing.clear();
     for (const [, w] of alive()) w.hide();
     onChange();
   }
@@ -473,29 +467,10 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
     const w = wins.get(type);
     if (!usable(w)) return;
     if (mode() === "desktop") {
-      w.setFocusable(true);
-      raised.add(type);
+      typing.add(type);
+      applyMode(type);
     }
     w.focus();
-  }
-
-  /**
-   * 把临时抬高过的卡片放回桌面层。0.5.1 起沉底不再隐藏窗口（见 desktop.restore），
-   * 所以开关菜单时卡片不会闪；标志位保证只做一次。
-   */
-  function leaveRaised(type) {
-    const w = wins.get(type);
-    if (!usable(w) || mode() !== "desktop" || hiddenAll) {
-      raised.delete(type);
-      return;
-    }
-    // 卡片正藏着：留着标志，等它重新显示出来再放回桌面层
-    if (!w.isVisible()) return;
-    raised.delete(type);
-    w.setFocusable(false);
-    // 别的卡片可能就压在它下面，判断「回到桌面层了」时要认它们。
-    const others = alive().filter(([t]) => t !== type).map(([, other]) => other);
-    desktop.restore(w, others);
   }
 
   /**
@@ -514,39 +489,14 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
     return on;
   }
 
-  /** 在卡片上弹出原生菜单。嵌入桌面时同样要临时允许激活，否则点别处菜单不会消失。 */
+  /**
+   * 在卡片上弹出原生菜单。嵌入桌面时也不用激活卡片：
+   * 菜单自己是一个顶层窗口，会浮在普通窗口上面，卡片本身留在桌面层不动。
+   */
   function popup(type, menu) {
     const w = wins.get(type);
     if (!usable(w)) return;
-    const desk = mode() === "desktop";
-    if (desk) {
-      w.setFocusable(true);
-      raised.add(type);
-      w.focus();
-      // 卡片的 owner 都是桌面，激活一张会把同组的其他卡片一起抬到普通窗口上面。
-      // 这里把其余的立刻沉回去，只留弹出菜单的这张在上面。
-      // 但桌面正被显示（Win+D）时不能沉：shell 在上面，沉底等于藏到壁纸后面，另外几张会整个消失。
-      if (!desktop.desktopIsRaised()) {
-        const sinkOthers = () => {
-          if (mode() !== "desktop" || desktop.desktopIsRaised()) return;
-          for (const [t, other] of alive()) {
-            if (t !== type && other.isVisible() && !attending.has(t)) desktop.sink(other);
-          }
-        };
-        // focus() 是异步派发到 UI 线程的，整组被抬起来可能比这次沉底晚一拍，所以再补两次。
-        sinkOthers();
-        setTimeout(sinkOthers, 50);
-        setTimeout(sinkOthers, 200);
-      }
-    }
-    menu.popup({
-      window: w,
-      callback: () => {
-        if (!desk) return;
-        // 等菜单把焦点还完再收回去；太早改会被菜单关掉时的焦点恢复盖掉。
-        setTimeout(() => leaveRaised(type), 150);
-      },
-    });
+    menu.popup({ window: w, callback: () => settle() });
   }
 
   return {
@@ -563,16 +513,15 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
       resizeEnd();
       clearInterval(reattachTimer);
       clearInterval(inputTimer);
-      clearInterval(desktopGuard);
+      clearInterval(settleTimer);
       for (const [type] of alive()) remember(type);
     },
     /** 改了显示模式后调用。 */
     applyMode() {
+      // 离开桌面模式时，打字的临时状态作废（卡片本来就能激活了）
+      if (mode() !== "desktop") typing.clear();
       for (const [type] of alive()) applyMode(type);
       syncTimer();
-      // 切回嵌入桌面时，把之前抬高过的卡片一并放回去；切到别的模式就不用管了
-      if (mode() === "desktop") for (const type of [...raised]) leaveRaised(type);
-      else raised.clear();
     },
     effectiveMode: mode,
     setLocked(locked) {

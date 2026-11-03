@@ -1,11 +1,16 @@
-// desktop.js — 「嵌入桌面」模式：卡片放在所有普通窗口下面，按 Win+D 显示桌面时仍然可见。
+// desktop.js — 「嵌入桌面」模式：卡片贴着桌面图标那一层，按 Win+D 显示桌面时跟着上来。
 //
 // 做法（原型在 Windows 11 26300 上验证过）：
 //   1. 找到放桌面图标的窗口：24H2 起是 Progman，之前是包含 SHELLDLL_DefView 的 WorkerW（同 Rainmeter）。
 //   2. 把卡片窗口的「所有者」设为它（GWLP_HWNDPARENT）。显示桌面时系统把桌面提到前面，被它拥有的窗口跟着上来。
-//   3. 卡片设为不可激活：否则按 Win+D 后卡片会被激活成前台窗口，再按一次 Win+D 就还原不了别的窗口。
-//      需要打字时（快速新建）由 cards.js 临时允许激活，失去焦点后再沉回最底层。
-// 只在 Windows 上可用；其他系统 available 为 false，界面里不提供这个模式。
+//   3. 卡片设为不可激活：否则按 Win+D 后卡片会被激活成前台窗口，再按一次就还原不了别的窗口。
+//
+// 这个文件只提供两个「怎么放」的原语，不判断「什么时候放」——那是 cards.js 的 settle() 的事：
+//   attach / detach     卡片跟不跟随桌面（跟随桌面 = 能被 Win+D 带上来）
+//   toDesktopLayer      把卡片摆到桌面层该在的 Z 序位置
+//   atDesktopLayer      它现在在不在那儿
+// 之所以只留这两个：卡片的 owner 是桌面，Windows 把「桌面 + 所有卡片」当成一个 Z 序组，
+// 任何一次 SetWindowPos 都是改组内顺序而不是动一张卡。把判断收敛到一个地方，才不会互相打架。
 
 import { createRequire } from "node:module";
 
@@ -30,9 +35,6 @@ function load() {
       GetSystemMetrics: u.func("int GetSystemMetrics(int index)"),
       IsWindowVisible: u.func(`bool IsWindowVisible(${H} h)`),
       ShowWindow: u.func(`bool ShowWindow(${H} h, int cmd)`),
-      GetForegroundWindow: u.func(`${H} GetForegroundWindow()`),
-      GetTopWindow: u.func(`${H} GetTopWindow(${H} h)`),
-      GetClassNameW: u.func("int GetClassNameW(uintptr_t h, str16 buf, int max)"),
     };
   } catch {
     api = false;
@@ -43,9 +45,11 @@ function load() {
 const GWLP_HWNDPARENT = -8;
 const GW_OWNER = 4;
 const GW_HWNDNEXT = 2;
-const HWND_BOTTOM = 1n;
+const GW_HWNDPREV = 3;
+const HWND_TOP = 0;
 const SWP_KEEP = 0x0001 | 0x0002 | 0x0010; // NOSIZE | NOMOVE | NOACTIVATE
-const SWP_SINK = SWP_KEEP | 0x0200; // + NOOWNERZORDER：卡片 owner 是桌面，少了它 HWND_BOTTOM 会被系统吞掉
+// + NOOWNERZORDER：卡片 owner 是桌面，少了它 SetWindowPos 会被系统吞掉（静默不动）。
+const SWP_SINK = SWP_KEEP | 0x0200;
 const big = (v) => BigInt(v || 0);
 
 export const available = () => !!load();
@@ -55,20 +59,36 @@ const hwndOf = (win) => {
   return buf.length >= 8 ? buf.readBigUInt64LE(0) : BigInt(buf.readUInt32LE(0));
 };
 
+// 桌面窗口句柄缓存：settle() 每 16ms 问一次，每次现查要发好几次 FindWindowExW。
+// Explorer 重启后句柄会变，靠 TTL 兜住（attach() 也会刷新）。
+let hostCache = 0n;
+let hostAt = 0;
+const HOST_TTL = 1000;
+
 /** 放桌面图标的窗口；Explorer 没在运行时返回 0n。 */
 function iconsHost() {
   const a = load();
+  if (!a) return 0n;
+  const now = Date.now();
+  if (hostCache && now - hostAt < HOST_TTL) return hostCache;
   const shell = big(a.GetShellWindow());
   if (!shell) return 0n;
-  if (a.FindWindowExW(shell, 0, "SHELLDLL_DefView", "")) return shell;
-  let w = 0n;
-  while ((w = big(a.FindWindowExW(0, w, "WorkerW", "")))) {
-    if (a.FindWindowExW(w, 0, "SHELLDLL_DefView", "")) return w;
+  let host = shell;
+  if (!a.FindWindowExW(shell, 0, "SHELLDLL_DefView", "")) {
+    let w = 0n;
+    while ((w = big(a.FindWindowExW(0, w, "WorkerW", "")))) {
+      if (a.FindWindowExW(w, 0, "SHELLDLL_DefView", "")) {
+        host = w;
+        break;
+      }
+    }
   }
-  return shell;
+  hostCache = host;
+  hostAt = now;
+  return host;
 }
 
-/** 挂到桌面下面。返回是否成功；已经挂好时什么也不做（定时检查用，Explorer 重启后会重新挂）。 */
+/** 挂到桌面下面。返回是否挂好了；已经挂好时什么也不做（Explorer 重启后定时调一次即可重新挂）。 */
 export function attach(win) {
   const a = load();
   if (!a || win.isDestroyed()) return false;
@@ -83,6 +103,43 @@ export function detach(win) {
   const a = load();
   if (!a || win.isDestroyed()) return;
   a.SetWindowLongPtrW(hwndOf(win), GWLP_HWNDPARENT, 0n);
+}
+
+/**
+ * 把卡片摆到桌面层该在的位置：紧贴在桌面窗口正上方。
+ * shell 平时在 Z 序最底下，插到它上方 = 在所有普通窗口下面；
+ * 按 Win+D 把 shell 抬起来时同样插到它上方，卡片就跟着上来了——两种情形同一条规则，不用特判。
+ * 已经贴着就不动：每帧重设会打断这块区域的重绘。
+ */
+export function toDesktopLayer(win) {
+  const a = load();
+  if (!a || win.isDestroyed()) return;
+  const shell = big(a.GetShellWindow());
+  if (!shell) return;
+  const h = hwndOf(win);
+  const above = big(a.GetWindow(shell, GW_HWNDPREV)); // shell 正上方那个窗口
+  if (above === h) return;
+  a.SetWindowPos(h, above ? BigInt.asIntN(64, above) : BigInt(HWND_TOP), 0, 0, 0, 0, SWP_SINK);
+}
+
+/**
+ * 卡片是不是已经贴着桌面：从卡片往下（GW_HWNDNEXT）走到桌面窗口，中间只有自家的其他卡片。
+ * others 是其他卡片窗口，几张拼在一起时每张都在对方上面，不能只认「下一个就是桌面」。
+ */
+export function atDesktopLayer(win, others = []) {
+  const a = load();
+  if (!a || win.isDestroyed()) return false;
+  const host = iconsHost();
+  if (!host) return false;
+  const own = new Set([hwndOf(win)]);
+  for (const o of others) if (o && !o.isDestroyed()) own.add(hwndOf(o));
+  let cur = big(a.GetWindow(hwndOf(win), GW_HWNDNEXT));
+  for (let i = 0; cur && i < 64; i += 1) {
+    if (cur === host) return true;
+    if (!own.has(cur)) return false;
+    cur = big(a.GetWindow(cur, GW_HWNDNEXT));
+  }
+  return false;
 }
 
 // ── 左键不被吞 ──
@@ -102,92 +159,6 @@ export function keepClickable(win) {
   if (a.IsWindowVisible(child)) return true;
   a.ShowWindow(child, SW_SHOWNOACTIVATE);
   return true;
-}
-
-/**
- * 桌面窗口现在是不是被抬起来了（按 Win+D 显示桌面时 shell 会升到 Z 序前面）。
- * 平时 shell 是 Z 序最后一个（下面没有窗口）；被抬起来时它后面还有窗口。
- * 这时候不能把卡片沉底：卡片会沉到桌面后面，看起来就是全消失了。
- */
-export function desktopIsRaised() {
-  const a = load();
-  if (!a) return false;
-  const shell = big(a.GetShellWindow());
-  if (!shell) return false;
-  return big(a.GetWindow(shell, GW_HWNDNEXT)) !== 0n;
-}
-
-/**
- * 现在前台是不是桌面（Progman / WorkerW / 桌面图标层 SHELLDLL_DefView，或它们所属的窗口）。
- * 点桌面时系统会把挂在桌面名下的卡片一起抬到普通窗口上面，这个函数用来及时发现这件事。
- */
-export function foregroundIsDesktop() {
-  const a = load();
-  if (!a) return false;
-  const fg = big(a.GetForegroundWindow());
-  if (!fg) return false;
-  // 先看窗口类名，这条路只调一次 GetClassNameW，适合 16ms 一次的高频检查。
-  const buf = Buffer.alloc(64);
-  if (!a.GetClassNameW(fg, buf, 63)) return false;
-  const name = buf.toString("utf16le").replace(/\0.*$/, "");
-  return name === "Progman" || name === "WorkerW" || name === "SHELLDLL_DefView";
-}
-
-/** 这张卡片现在是不是真正的前台窗口。Electron 的 isFocused 有时会和 Windows 实际状态对不上。 */
-export function isForeground(win) {
-  const a = load();
-  if (!a || win.isDestroyed()) return false;
-  return big(a.GetForegroundWindow()) === hwndOf(win);
-}
-
-/**
- * 沉到最底层（仍在桌面之上）。
- * 必须带 SWP_NOOWNERZORDER：卡片的 owner 是桌面，少了它这次 SetWindowPos 会被系统吞掉，
- * 定时器每 5 秒调一次，看起来就是「卡片过一会儿又跑到别的窗口上面」。
- */
-export function sink(win) {
-  const a = load();
-  if (!a || win.isDestroyed()) return;
-  a.SetWindowPos(hwndOf(win), HWND_BOTTOM, 0, 0, 0, 0, SWP_SINK);
-}
-
-/**
- * 卡片是不是已经贴着桌面：从卡片往下（GW_HWNDNEXT）走到桌面窗口，中间只有自家的其他卡片。
- * others 是其他卡片窗口的句柄，多张卡片一起拼着的时候每张都在对方上面，不能只认「下一个就是桌面」。
- */
-export function isAtDesktopLayer(win, others = []) {
-  const a = load();
-  if (!a || win.isDestroyed()) return false;
-  const host = iconsHost();
-  if (!host) return false;
-  const own = new Set([hwndOf(win), ...others.filter((o) => o && !o.isDestroyed()).map((o) => hwndOf(o))]);
-  let cur = big(a.GetWindow(hwndOf(win), GW_HWNDNEXT));
-  let i = 0;
-  while (cur && i < 64) {
-    if (cur === host) return true;
-    if (!own.has(cur)) return false;
-    cur = big(a.GetWindow(cur, GW_HWNDNEXT));
-    i += 1;
-  }
-  return false;
-}
-
-/**
- * 把被抬高过（打开菜单、临时打字）的卡片放回桌面层。
- * 全程不隐藏窗口：hide/show 会让卡片肉眼可见地消失一下。沉底没到位时隔 100ms 再补一次，
- * 两次都不行就先放着——卡片 owner 还是桌面，下一次 5 秒兜底或下一次菜单操作会再沉。
- */
-export function restore(win, others = []) {
-  const a = load();
-  if (!a || win.isDestroyed() || !win.isVisible()) return;
-  // 桌面正被显示（Win+D）时 shell 在最上面，沉底会让卡片藏到壁纸后面，等它落回去再收。
-  if (desktopIsRaised()) return;
-  a.SetWindowPos(hwndOf(win), HWND_BOTTOM, 0, 0, 0, 0, SWP_SINK);
-  if (isAtDesktopLayer(win, others)) return;
-  setTimeout(() => {
-    if (!a || win.isDestroyed() || !win.isVisible()) return;
-    a.SetWindowPos(hwndOf(win), HWND_BOTTOM, 0, 0, 0, 0, SWP_SINK);
-  }, 100);
 }
 
 /** Alt 现在按着吗。拉边改大小时按住 Alt 不吸附。 */
