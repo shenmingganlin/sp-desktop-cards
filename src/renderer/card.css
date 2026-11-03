@@ -1,29 +1,12 @@
-/* card.css — 所有卡片共用的外观：顶栏、列表行、快速新建、提示条。各卡片自己的样式在 cards.css。 */
-:root {
-  --bg: #1f1f1f;
-  --bg-2: #2a2a2a;
-  --line: #333;
-  --text: #e8e8e8;
-  --dim: #9a9a9a;
-  --accent: #ff4d8d;
-  --focus: #6cc3ff;
-  --break: #7bd88f;
-  --warn: #ffb347;
-  --danger: #ff6b6b;
-  color-scheme: dark;
-  accent-color: var(--accent);
-}
-
-* { box-sizing: border-box; }
-/* 带 display 的规则会盖掉 hidden 属性，这里统一让 hidden 生效。 */
-[hidden] { display: none !important; }
+/* card.css — 所有卡片共用的外观：顶栏、列表行、快速新建、提示条。各卡片自己的样式在 cards.css。
+   颜色、圆角、字体全部来自 theme.css，这里不写死色值。 */
 
 html, body {
   margin: 0;
   height: 100%;
   background: var(--bg);
   color: var(--text);
-  font: 13px/1.4 "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+  font: 13px/1.4 var(--font-ui);
   user-select: none;
   overflow: hidden;
 }
@@ -31,7 +14,7 @@ html, body {
 body {
   display: flex;
   flex-direction: column;
-  border: 1px solid var(--line);
+  border: var(--hairline) solid var(--line);
 }
 
 button {
@@ -81,7 +64,7 @@ body.locked .hnd { display: none; }
   white-space: nowrap;
   overflow: hidden;
 }
-#title { flex: none; font-weight: 600; }
+#title { flex: none; font-family: var(--font-title); font-weight: 600; }
 #sub { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 11px; color: var(--dim); }
 #sub.warn { color: var(--warn); }
 #tools { display: flex; gap: 2px; flex: none; }
@@ -89,12 +72,12 @@ body.locked .hnd { display: none; }
 .icon {
   width: 24px;
   height: 24px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   color: var(--dim);
   font-size: 12px;
   flex: none;
 }
-.icon:hover { background: #3a3a3a; color: var(--text); }
+.icon:hover { background: var(--bg-hover); color: var(--text); }
 .icon.text { width: auto; padding: 0 6px; font-size: 11px; }
 .icon.on { color: var(--accent); }
 #collapse { font-size: 14px; }
@@ -103,14 +86,14 @@ body.locked .hnd { display: none; }
 #body { flex: 1; overflow-y: auto; min-height: 0; position: relative; }
 body.collapsed #body, body.collapsed #foot, body.collapsed #banner { display: none; }
 #body::-webkit-scrollbar { width: 6px; }
-#body::-webkit-scrollbar-thumb { background: #444; border-radius: 3px; }
+#body::-webkit-scrollbar-thumb { background: var(--bg-scroll); border-radius: var(--radius-sm); }
 #body.stale { opacity: 0.55; }
 
 #banner {
   margin: 6px 8px 0;
   padding: 6px 8px;
-  border-radius: 4px;
-  background: #3a2a1a;
+  border-radius: var(--radius-sm);
+  background: var(--bg-banner);
   color: var(--warn);
   font-size: 12px;
 }
@@ -135,9 +118,9 @@ body.collapsed #body, body.collapsed #foot, body.collapsed #banner { display: no
   padding: 2px 6px 2px 8px;
   border-left: 2px solid transparent;
 }
-.row:hover { background: #262626; }
+.row:hover { background: var(--bg-row-hover); }
 .row.child { padding-left: 26px; min-height: 24px; font-size: 12px; }
-.row.current { background: #2b2430; border-left-color: var(--accent); }
+.row.current { background: var(--bg-row-current); border-left-color: var(--accent); }
 .row.upcoming { border-left-color: var(--warn); }
 .row.upcoming .meta { color: var(--warn); }
 .row.overdue .meta { color: var(--danger); }
@@ -151,7 +134,7 @@ body.collapsed #body, body.collapsed #foot, body.collapsed #banner { display: no
   flex: none;
   width: 15px;
   height: 15px;
-  border: 1.5px solid #777;
+  border: 1.5px solid var(--mute);
   border-radius: 50%;
   position: relative;
 }
@@ -164,12 +147,12 @@ body.collapsed #body, body.collapsed #foot, body.collapsed #banner { display: no
   top: 1px;
   width: 4px;
   height: 7px;
-  border: solid #fff;
+  border: solid var(--ink-on-accent);
   border-width: 0 1.5px 1.5px 0;
   transform: rotate(45deg);
 }
 /* 重复任务的投影、截止日：前面放一个符号代替勾选框 */
-.mark { flex: none; width: 15px; text-align: center; font-size: 11px; color: #777; }
+.mark { flex: none; width: 15px; text-align: center; font-size: 11px; color: var(--mute); }
 
 .text { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .parent { color: var(--dim); }
@@ -185,26 +168,26 @@ body.collapsed #body, body.collapsed #foot, body.collapsed #banner { display: no
   visibility: hidden;
 }
 .row:hover .play, .row.current .play { visibility: visible; }
-.play:hover { background: var(--accent); color: #fff; }
+.play:hover { background: var(--accent); color: var(--ink-on-accent); }
 .row.current .play { color: var(--accent); }
 
 .empty { padding: 24px 16px; text-align: center; color: var(--dim); }
 .empty p { margin: 0 0 10px; }
-.none { padding: 0 10px 4px 31px; font-size: 11px; color: #666; }
+.none { padding: 0 10px 4px 31px; font-size: 11px; color: var(--faint); }
 
 .btn {
   padding: 3px 12px;
-  border-radius: 4px;
-  background: #3a3a3a;
+  border-radius: var(--radius-sm);
+  background: var(--bg-hover);
 }
-.btn:hover { background: #4a4a4a; }
-.btn.primary { background: var(--accent); color: #fff; }
-.btn.primary:hover { background: #ff6ba1; }
-.btn.danger, .btn.danger:hover { background: var(--danger); color: #fff; }
+.btn:hover { background: var(--bg-hover-2); }
+.btn.primary { background: var(--accent); color: var(--ink-on-accent); }
+.btn.primary:hover { background: var(--accent-hover); }
+.btn.danger, .btn.danger:hover { background: var(--danger); color: var(--ink-on-accent); }
 
 /* 番茄钟到点：卡片浮到最上面，边框闪几下后保持高亮，点一下回去 */
 body.attention { border-color: var(--accent); animation: attention 0.9s ease-in-out 4; }
-body.attention #head { background: #4a2233; }
+body.attention #head { background: var(--bg-attention); }
 @keyframes attention {
   50% { border-color: transparent; box-shadow: inset 0 0 0 2px var(--accent); }
 }
@@ -218,8 +201,8 @@ body.attention #head { background: #4a2233; }
   gap: 6px;
   margin: 2px 8px 4px;
   padding: 2px 6px;
-  border: 1px solid #444;
-  border-radius: 4px;
+  border: var(--hairline) solid var(--line-strong);
+  border-radius: var(--radius-sm);
   background: var(--bg);
 }
 .add:focus-within { border-color: var(--accent); }
@@ -233,13 +216,13 @@ body.attention #head { background: #4a2233; }
   background: none;
   user-select: text;
 }
-.add input::placeholder { color: #666; }
+.add input::placeholder { color: var(--faint); }
 
 /* ── 底栏 ── */
 #foot {
   flex: none;
   padding: 5px 10px;
-  border-top: 1px solid var(--line);
+  border-top: var(--hairline) solid var(--line);
   font-size: 11px;
   color: var(--dim);
   white-space: nowrap;
@@ -259,9 +242,9 @@ body.attention #head { background: #4a2233; }
   justify-content: space-between;
   align-items: center;
   padding: 6px 10px;
-  border-radius: 6px;
-  background: #3a3a3a;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  border-radius: var(--radius-md);
+  background: var(--bg-toast);
+  box-shadow: var(--shadow-popup);
   font-size: 12px;
   z-index: 10;
 }

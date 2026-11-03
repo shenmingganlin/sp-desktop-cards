@@ -95,5 +95,10 @@
     else if (e.key === "Escape") act("close");
   });
 
+  // 教程开着时换皮肤也跟着换
+  window.widget.onEvent((e) => {
+    if (e?.type === "theme" && window.WTheme) window.WTheme.apply(e.theme);
+  });
+
   render();
 })();

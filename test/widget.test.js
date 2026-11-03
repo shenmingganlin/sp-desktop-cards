@@ -8,6 +8,7 @@ import * as pomo from "../src/main/pomodoro.js";
 import { INBOX, taskFields } from "../src/main/quickadd.js";
 import { CARD_SIZE, DEFAULTS, GAP, migrate, sanitize } from "../src/main/settings.js";
 import { defaultSpot, followResize, groupOf, isOnScreen, resizeRect, snapMove } from "../src/main/snap.js";
+import { backgroundOf, readExternal, resolveSkin, skinOf, SKINS } from "../src/main/theme.js";
 import { artifactName, downloadFile, fetchLatest, isNewer, parseVersion, tagFromUrl } from "../src/main/update.js";
 import { adoptUserData } from "../src/main/usermigrate.js";
 
@@ -390,4 +391,40 @@ test("改名搬家：老版本还开着、缓存复制不动时，设置也要�
   const s = JSON.parse(fs.readFileSync(path.join(now, "settings.json"), "utf8"));
   assert.equal(s.opacity, 0.4, "设置没搬过来");
   fs.rmSync(roam, { recursive: true, force: true });
+});
+
+test("皮肤：外部主题文件合法时覆盖手选，坏了/删了就退回", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "spw-theme-"));
+  const file = path.join(dir, "theme.json");
+  try {
+    assert.equal(readExternal(file), null); // 文件不存在
+    fs.writeFileSync(file, "{oops");
+    assert.equal(readExternal(file), null); // JSON 坏了
+    fs.writeFileSync(file, JSON.stringify({ theme: "pink" }));
+    assert.equal(readExternal(file), null); // 皮肤名不认识
+    fs.writeFileSync(file, JSON.stringify({ theme: "hana", source: " 任务台 " }));
+    // 0.3.0 的旧名字 hana 现在叫 new-warm-paper
+    assert.deepEqual(readExternal(file), { theme: "new-warm-paper", source: "任务台" });
+    fs.writeFileSync(file, JSON.stringify({ theme: "midnight", source: "任务台" }));
+    assert.deepEqual(readExternal(file), { theme: "midnight", source: "任务台" });
+
+    assert.deepEqual(resolveSkin("hana", null), { theme: "new-warm-paper", source: "" });
+    assert.deepEqual(resolveSkin("dark", { theme: "midnight", source: "任务台" }), { theme: "midnight", source: "任务台" });
+    assert.deepEqual(resolveSkin("pink", null), { theme: "dark", source: "" });
+    assert.equal(backgroundOf("hana"), "#f5efe4");
+    assert.equal(backgroundOf("midnight"), "#3b4a54");
+    assert.equal(backgroundOf("dark"), "#1f1f1f");
+    assert.equal(SKINS.length, 12);
+    assert.equal(skinOf("coral").name, "珊瑚");
+    assert.equal(skinOf("hana").id, "new-warm-paper");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("设置：皮肤只收认识的 id，旧名字 hana 归一成新暖纸", () => {
+  assert.equal(sanitize({ theme: "hana" }).theme, "new-warm-paper");
+  assert.equal(sanitize({ theme: "coral" }).theme, "coral");
+  assert.equal(sanitize({ theme: "pink" }).theme, DEFAULTS.theme);
+  assert.equal(DEFAULTS.theme, "dark");
 });

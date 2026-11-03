@@ -8,6 +8,7 @@ import { BrowserWindow, screen } from "electron";
 import * as desktop from "./desktop.js";
 import { CARD_SIZE, CARD_TYPES } from "./settings.js";
 import { boundingBox, defaultSpot, followResize, groupOf, isOnScreen, resizeRect, snapMove } from "./snap.js";
+import { backgroundOf } from "./theme.js";
 
 export const HEADER_HEIGHT = 34;
 export const CARD_TITLE = { focus: "专注", today: "今日", planner: "规划", schedule: "日程", month: "月历" };
@@ -25,11 +26,12 @@ const INPUT_CHECK_MS = 500;
 /**
  * settings 是设置存储；page 是 card.html 的路径；onChange 在卡片显示/隐藏后调用（刷新托盘菜单）。
  */
-export function createCards({ settings, preload, page, icon, onChange = () => {}, onGroupDrag = () => {} }) {
+export function createCards({ settings, preload, page, icon, onChange = () => {}, onGroupDrag = () => {}, themeId = () => "dark" }) {
   const wins = new Map(); // type → BrowserWindow
   const last = new Map(); // type → 上次已知的外框，用来算改大小前后的差
   const closing = new Set(); // 主动关掉的卡片，关掉后不要重建
   const attending = new Set(); // 番茄钟到点时临时浮到最上面的卡片
+  const raised = new Set(); // 因为菜单/打字临时抬高过、还没放回桌面层的卡片
   let applying = 0; // 正在由这里改位置/大小，期间收到的 move/resize 事件不当作用户操作
   let drag = null;
   let hiddenAll = false;
@@ -145,6 +147,11 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
       for (const [type, w] of alive()) {
         if (!w.isVisible() || attending.has(type)) continue;
         desktop.attach(w);
+        // 菜单关掉的回调偶尔不触发，抬高过的卡片在这里兜底放回去。
+        if (raised.has(type) && !desktop.isForeground(w)) {
+          leaveRaised(type);
+          continue;
+        }
         if (!w.isFocused()) desktop.sink(w);
       }
     }, REATTACH_MS);
@@ -186,7 +193,7 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
       fullscreenable: false,
       skipTaskbar: true,
       show: false,
-      backgroundColor: "#1f1f1f",
+      backgroundColor: backgroundOf(themeId()),
       title: `SP 桌面卡片 · ${CARD_TITLE[type]}`,
       icon,
       // 卡片常年不在前台，嵌入桌面时还被别的窗口盖着；不关节流的话倒计时和提示条的计时器会停。
@@ -208,10 +215,12 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
     w.on("move", () => onMoved(type, w));
     w.on("resize", () => onResized(type, w));
     w.on("blur", () => {
-      // 嵌入桌面时为了打字临时允许激活过，失去焦点后沉回去
+      // 嵌入桌面时为了打字/菜单临时允许激活过，失去焦点后沉回去
       if (mode() !== "desktop" || !usable(w)) return;
       w.setFocusable(false);
-      if (!attending.has(type)) desktop.sink(w);
+      if (attending.has(type)) return;
+      if (raised.has(type)) leaveRaised(type);
+      else desktop.sink(w);
     });
     w.on("close", (e) => {
       // Alt+F4 只是隐藏这张卡片
@@ -235,7 +244,7 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
       w.showInactive();
       if (mode() === "desktop" && !attending.has(type)) desktop.sink(w);
     });
-    w.loadFile(page, { query: { card: type } });
+    w.loadFile(page, { query: { card: type, theme: themeId() } });
     return w;
   }
 
@@ -394,6 +403,7 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
     hiddenAll = true;
     dragEnd();
     attending.clear();
+    // raised 不清：藏起来再显示时，抬高过的卡片还要靠它放回桌面层
     for (const [, w] of alive()) w.hide();
     onChange();
   }
@@ -433,8 +443,28 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
   function requestFocus(type) {
     const w = wins.get(type);
     if (!usable(w)) return;
-    if (mode() === "desktop") w.setFocusable(true);
+    if (mode() === "desktop") {
+      w.setFocusable(true);
+      raised.add(type);
+    }
     w.focus();
+  }
+
+  /**
+   * 把临时抬高过的卡片放回桌面层。菜单关掉后焦点会回到卡片，直接沉底会被系统吞掉，
+   * 必须藏一下再沉；标志位保证只做一次，不会每次检查都闪。
+   */
+  function leaveRaised(type) {
+    const w = wins.get(type);
+    if (!usable(w) || mode() !== "desktop" || hiddenAll) {
+      raised.delete(type);
+      return;
+    }
+    // 卡片正藏着：留着标志，等它重新显示出来再放回桌面层
+    if (!w.isVisible()) return;
+    raised.delete(type);
+    w.setFocusable(false);
+    desktop.restore(w);
   }
 
   /**
@@ -460,15 +490,15 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
     const desk = mode() === "desktop";
     if (desk) {
       w.setFocusable(true);
+      raised.add(type);
       w.focus();
     }
     menu.popup({
       window: w,
       callback: () => {
-        if (desk && usable(w) && !w.isFocused()) {
-          w.setFocusable(false);
-          desktop.sink(w);
-        }
+        if (!desk) return;
+        // 等菜单把焦点还完再收回去；太早改会被菜单关掉时的焦点恢复盖掉。
+        setTimeout(() => leaveRaised(type), 150);
       },
     });
   }
@@ -493,6 +523,9 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
     applyMode() {
       for (const [type] of alive()) applyMode(type);
       syncTimer();
+      // 切回嵌入桌面时，把之前抬高过的卡片一并放回去；切到别的模式就不用管了
+      if (mode() === "desktop") for (const type of [...raised]) leaveRaised(type);
+      else raised.clear();
     },
     effectiveMode: mode,
     setLocked(locked) {
@@ -509,6 +542,10 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
     },
     setOpacity(opacity) {
       for (const [, w] of alive()) w.setOpacity(opacity);
+    },
+    /** 换皮肤时同步窗口底色，免得改大小的过程中露出旧颜色。 */
+    setBackground(color) {
+      for (const [, w] of alive()) w.setBackgroundColor(color);
     },
     setVisible,
     setCollapsed,

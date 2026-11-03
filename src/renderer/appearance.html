@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:" />
+    <title>SP 桌面卡片 · 外观</title>
+    <link rel="stylesheet" href="theme.css" />
+    <script src="theme.js"></script>
+    <link rel="stylesheet" href="appearance.css" />
+  </head>
+  <body>
+    <main>
+      <p class="lede">选一套皮肤，卡片、设置、教程和更新窗口会立刻一起换。深夜是小窗原来的样子，其余来自 Hana。</p>
+      <div id="grid" class="grid" role="list"></div>
+      <p class="hint" id="external" hidden></p>
+    </main>
+    <footer>
+      <span id="current" class="current"></span>
+      <button class="btn primary" id="done" type="button">完成</button>
+    </footer>
+    <script src="appearance.js"></script>
+  </body>
+</html>

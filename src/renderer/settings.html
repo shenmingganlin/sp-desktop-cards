@@ -4,10 +4,22 @@
     <meta charset="UTF-8" />
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:" />
     <title>SP 桌面卡片 · 设置</title>
+    <link rel="stylesheet" href="theme.css" />
+    <script src="theme.js"></script>
     <link rel="stylesheet" href="settings.css" />
   </head>
   <body>
     <main>
+      <section>
+        <h2>外观</h2>
+        <div class="field">
+          <span>皮肤</span>
+          <button class="btn inline" id="appearance-button" type="button">选择…</button>
+          <span id="theme-current"></span>
+          <span class="hint" id="theme-external" hidden></span>
+        </div>
+      </section>
+
       <section>
         <h2>显示</h2>
         <label class="field">

@@ -7,6 +7,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { DEFAULT_POMODORO } from "./pomodoro.js";
+import { normalizeSkin } from "./theme.js";
 
 export const CARD_TYPES = ["focus", "today", "planner", "schedule", "month"];
 export const CARD_SIZE = {
@@ -30,6 +31,7 @@ const DEFAULT_CARDS = Object.freeze({
 export const DEFAULTS = Object.freeze({
   version: 2,
   mode: "top", // top 置顶 / normal 普通窗口 / desktop 嵌入桌面
+  theme: "dark", // dark 深夜 / hana 暖纸；外部主题文件可以临时覆盖
   locked: false,
   opacity: 0.95,
   openAtLogin: false,
@@ -114,6 +116,8 @@ export function sanitize(input, base = DEFAULTS) {
   const s = { ...base, cards: cleanCards(null, base.cards), pomodoro: { ...base.pomodoro } };
   if (!input || typeof input !== "object") return s;
   if (MODES.includes(input.mode)) s.mode = input.mode;
+  const pickedTheme = normalizeSkin(input.theme);
+  if (pickedTheme) s.theme = pickedTheme;
   for (const key of ["locked", "openAtLogin", "showDone", "tourDone", "autoUpdate"]) {
     if (typeof input[key] === "boolean") s[key] = input[key];
   }

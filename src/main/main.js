@@ -14,6 +14,7 @@ import { createPoller } from "./poller.js";
 import { taskFields } from "./quickadd.js";
 import { CARD_TYPES, createSettingsStore, MODES } from "./settings.js";
 import { createClient, DEFAULT_BASE_URL, HINTS } from "./sp-client.js";
+import * as theme from "./theme.js";
 import { isValidToken, readSpToken } from "./token.js";
 import * as updateCheck from "./update.js";
 import { adoptUserData } from "./usermigrate.js";
@@ -44,6 +45,7 @@ let poller;
 let cards;
 let tray = null;
 let settingsWin = null;
+let appearanceWin = null;
 let raw = null; // SP 最近一次的原始数据
 let lastError = null;
 let autoToken = "";
@@ -53,6 +55,27 @@ let pomoState;
 let pomoTimer = null;
 // 日程和月历翻到了哪天、哪个月。只在内存里，null 表示跟着今天走。
 const ui = { scheduleDay: null, month: null, selected: null };
+
+// ── 皮肤 ──
+// 外部主题文件（theme.json）存在且合法时压过设置里手选的皮肤；小窗自己只读不写。
+let externalTheme = null;
+let themeStopWatcher = null;
+const themeFile = () => path.join(app.getPath("userData"), theme.EXTERNAL_FILE);
+const currentTheme = () => theme.resolveSkin(settings.get().theme, externalTheme);
+
+/** 把当前皮肤应用到所有窗口：原生控件深浅、窗口底色、还开着的设置/教程/更新窗口。 */
+function applyTheme() {
+  if (!settings) return;
+  const t = currentTheme();
+  const color = theme.backgroundOf(t.theme);
+  nativeTheme.themeSource = t.theme === "hana" ? "light" : "dark";
+  cards?.setBackground(color);
+  for (const win of [settingsWin, appearanceWin, tourWin, updateWin]) {
+    if (!win || win.isDestroyed()) continue;
+    win.setBackgroundColor(color);
+    win.webContents.send("event", { type: "theme", theme: t.theme });
+  }
+}
 
 const currentDay = () => {
   const h = settings.get().dayStartHour;
@@ -133,7 +156,17 @@ function pomoView() {
 
 function publicSettings() {
   const { manualToken: _hidden, ...rest } = settings.get();
-  return { ...rest, tokenSource: tokenSource(), canEncrypt, desktopAvailable: desktop.available(), effectiveMode: cards?.effectiveMode() };
+  const t = currentTheme();
+  return {
+    ...rest,
+    themeResolved: t.theme,
+    themeName: theme.skinOf(t.theme).name,
+    themeSource: t.source,
+    tokenSource: tokenSource(),
+    canEncrypt,
+    desktopAvailable: desktop.available(),
+    effectiveMode: cards?.effectiveMode(),
+  };
 }
 
 /** 把最新状态推给所有卡片和设置窗口。卡片按签名决定要不要重画，推多了不费事。 */
@@ -359,7 +392,7 @@ function openSettings() {
     minHeight: 400,
     show: false,
     autoHideMenuBar: true,
-    backgroundColor: "#1f1f1f",
+    backgroundColor: theme.backgroundOf(currentTheme().theme),
     title: "SP 桌面卡片 · 设置",
     icon,
     webPreferences: { preload, contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: false },
@@ -369,7 +402,34 @@ function openSettings() {
   settingsWin.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   settingsWin.once("ready-to-show", () => settingsWin.show());
   settingsWin.on("closed", () => (settingsWin = null));
-  settingsWin.loadFile(path.join(renderer, "settings.html"));
+  settingsWin.loadFile(path.join(renderer, "settings.html"), { query: { theme: currentTheme().theme } });
+}
+
+// ── 外观：皮肤一多，就不塞进设置页了，单独一个窗口 ──
+function openAppearance() {
+  if (appearanceWin && !appearanceWin.isDestroyed()) {
+    appearanceWin.show();
+    appearanceWin.focus();
+    return;
+  }
+  appearanceWin = new BrowserWindow({
+    width: 640,
+    height: 560,
+    minWidth: 460,
+    minHeight: 380,
+    show: false,
+    autoHideMenuBar: true,
+    backgroundColor: theme.backgroundOf(currentTheme().theme),
+    title: "SP 桌面卡片 · 外观",
+    icon,
+    webPreferences: { preload, contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: false },
+  });
+  appearanceWin.setMenu(null);
+  appearanceWin.webContents.on("will-navigate", (e) => e.preventDefault());
+  appearanceWin.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  appearanceWin.once("ready-to-show", () => appearanceWin.show());
+  appearanceWin.on("closed", () => (appearanceWin = null));
+  appearanceWin.loadFile(path.join(renderer, "appearance.html"), { query: { theme: currentTheme().theme } });
 }
 
 // ── 使用教程：第一次启动（含从旧版升级）时弹一次，之后从菜单打开 ──
@@ -389,7 +449,7 @@ function openTour() {
     maximizable: false,
     show: false,
     autoHideMenuBar: true,
-    backgroundColor: "#1f1f1f",
+    backgroundColor: theme.backgroundOf(currentTheme().theme),
     title: "SP 桌面卡片 · 使用教程",
     icon,
     webPreferences: { preload, contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: false },
@@ -403,7 +463,7 @@ function openTour() {
     tourWin = null;
     if (!settings.get().tourDone) settings.update({ tourDone: true });
   });
-  tourWin.loadFile(path.join(renderer, "tour.html"));
+  tourWin.loadFile(path.join(renderer, "tour.html"), { query: { theme: currentTheme().theme } });
 }
 
 // ── 检查更新：查 GitHub 上最新的 Release，问一声再下载，装完自己回来 ──
@@ -462,7 +522,7 @@ function openUpdateWindow(version) {
     alwaysOnTop: true,
     show: false,
     autoHideMenuBar: true,
-    backgroundColor: "#1f1f1f",
+    backgroundColor: theme.backgroundOf(currentTheme().theme),
     title: `SP 桌面卡片 · 下载 ${version}`,
     icon,
     webPreferences: { preload, contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: false },
@@ -472,7 +532,7 @@ function openUpdateWindow(version) {
   updateWin.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   updateWin.once("ready-to-show", () => updateWin?.show());
   updateWin.on("closed", () => (updateWin = null));
-  updateWin.loadFile(path.join(renderer, "update.html"));
+  updateWin.loadFile(path.join(renderer, "update.html"), { query: { theme: currentTheme().theme } });
 }
 
 /** 装新版：先退出，再让命令行等安装包跑完，然后把新的程序打开。 */
@@ -593,6 +653,7 @@ async function checkUpdate({ manual = false } = {}) {
 function saveSettings(patch) {
   const before = settings.get();
   const s = settings.update(patch);
+  if (s.theme !== before.theme) applyTheme();
   if (s.mode !== before.mode) cards.applyMode();
   if (s.locked !== before.locked) cards.setLocked(s.locked);
   if (s.opacity !== before.opacity) cards.setOpacity(s.opacity);
@@ -606,7 +667,7 @@ function saveSettings(patch) {
 // ── 页面发来的操作。只认白名单里的名字，参数逐个检查。 ──
 const isId = (v) => typeof v === "string" && v.length > 0 && v.length < 200;
 // 设置窗口能改的字段；卡片位置、令牌、番茄统计走各自的通道
-const EDITABLE = ["mode", "locked", "opacity", "openAtLogin", "upcomingMinutes", "dayStartHour", "showDone", "plannerDays",
+const EDITABLE = ["mode", "theme", "locked", "opacity", "openAtLogin", "upcomingMinutes", "dayStartHour", "showDone", "plannerDays",
   "scheduleStartHour", "scheduleEndHour", "quickAddProjectId", "pomodoro", "autoUpdate"];
 const pick = (obj, keys) => Object.fromEntries(keys.filter((k) => Object.hasOwn(obj, k)).map((k) => [k, obj[k]]));
 
@@ -673,9 +734,16 @@ const settingsActions = {
   setCardVisible: ({ type, visible }) => (CARD_TYPES.includes(type) && typeof visible === "boolean" ? (cards.setVisible(type, visible), pushState(), OK) : null),
   resetLayout: () => (cards.resetLayout(), OK),
   openTour: () => (openTour(), OK),
+  openAppearance: () => (openAppearance(), OK),
   checkUpdate: () => (void checkUpdate({ manual: true }), OK),
   setToken: ({ token }) => setManualToken(token),
   refresh: () => (poller.kick(), OK),
+};
+
+const appearanceActions = {
+  themeCatalog: () => ({ ok: true, data: { skins: theme.SKINS, current: currentTheme().theme, source: currentTheme().source } }),
+  setTheme: ({ id }) => (theme.isSkin(id) ? (saveSettings({ theme: id }), OK) : null),
+  closeAppearance: () => (appearanceWin?.close(), OK),
 };
 
 const tourActions = {
@@ -695,11 +763,13 @@ ipcMain.handle("action", async (event, name, payload) => {
     ? cardActions
     : from(settingsWin, event.sender)
       ? settingsActions
-      : from(tourWin, event.sender)
-        ? tourActions
-        : from(updateWin, event.sender)
-          ? updateActions
-          : null;
+      : from(appearanceWin, event.sender)
+        ? appearanceActions
+        : from(tourWin, event.sender)
+          ? tourActions
+          : from(updateWin, event.sender)
+            ? updateActions
+            : null;
   if (!table) return { ok: false, message: "未知来源" };
   const fn = Object.hasOwn(table, name) ? table[name] : null;
   const result = fn ? await fn(payload && typeof payload === "object" ? payload : {}, type) : null;
@@ -753,12 +823,14 @@ app.on("second-instance", () => cards?.showAll());
 app.on("before-quit", () => {
   cards?.quit();
   settings?.flush();
+  themeStopWatcher?.();
 });
 app.on("window-all-closed", () => {});
 
 app.whenReady().then(async () => {
-  nativeTheme.themeSource = "dark";
   settings = createSettingsStore(app.getPath("userData"));
+  // 外部主题文件先读一次，卡片窗口创建时就要用对皮肤
+  externalTheme = theme.readExternal(themeFile());
   await loadManualToken();
   const initial = settings.get();
   pomoState = pomo.createState(initial.pomodoroStats);
@@ -781,6 +853,7 @@ app.whenReady().then(async () => {
     preload,
     page: path.join(renderer, "card.html"),
     icon,
+    themeId: () => currentTheme().theme,
     onChange() {
       poller.setIdle(!cards.isShown());
       rebuildTrayMenu();
@@ -794,6 +867,13 @@ app.whenReady().then(async () => {
     },
   });
   cards.start();
+  applyTheme();
+  // 每 2 秒看一眼外部主题文件；文件变了就换皮肤，删掉就回到手选的
+  themeStopWatcher = theme.watchExternal(themeFile(), (value) => {
+    externalTheme = value;
+    applyTheme();
+    pushState();
+  });
   if (!SMOKE) createTray();
   // 接着上次的番茄：重新挂上定时器和托盘提示
   applyPomo({ state: pomoState, effects: [] });

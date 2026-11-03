@@ -338,7 +338,10 @@ const W = (() => {
     renderFoot();
   }
 
-  const setState = (next) => (state = next);
+  const setState = (next) => {
+    state = next;
+    if (window.WTheme) window.WTheme.apply(next.settings?.themeResolved);
+  };
   const define = (type, spec) => (defs[type] = spec);
   // ── 顶栏 ──
   // 拖动交给主进程：它按鼠标位置挪整组吸附在一起的卡片（按住 Alt 只挪这一张），松手时保存位置。

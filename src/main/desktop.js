@@ -30,6 +30,7 @@ function load() {
       GetSystemMetrics: u.func("int GetSystemMetrics(int index)"),
       IsWindowVisible: u.func(`bool IsWindowVisible(${H} h)`),
       ShowWindow: u.func(`bool ShowWindow(${H} h, int cmd)`),
+      GetForegroundWindow: u.func(`${H} GetForegroundWindow()`),
     };
   } catch {
     api = false;
@@ -41,6 +42,7 @@ const GWLP_HWNDPARENT = -8;
 const GW_OWNER = 4;
 const HWND_BOTTOM = 1n;
 const SWP_KEEP = 0x0001 | 0x0002 | 0x0010; // NOSIZE | NOMOVE | NOACTIVATE
+const SWP_SINK = SWP_KEEP | 0x0200; // + NOOWNERZORDER：卡片 owner 是桌面，少了它 HWND_BOTTOM 会被系统吞掉
 const big = (v) => BigInt(v || 0);
 
 export const available = () => !!load();
@@ -99,11 +101,34 @@ export function keepClickable(win) {
   return true;
 }
 
+/** 这张卡片现在是不是真正的前台窗口。Electron 的 isFocused 有时会和 Windows 实际状态对不上。 */
+export function isForeground(win) {
+  const a = load();
+  if (!a || win.isDestroyed()) return false;
+  return big(a.GetForegroundWindow()) === hwndOf(win);
+}
+
 /** 沉到最底层（仍在桌面之上）。 */
 export function sink(win) {
   const a = load();
   if (!a || win.isDestroyed()) return;
   a.SetWindowPos(hwndOf(win), HWND_BOTTOM, 0, 0, 0, 0, SWP_KEEP);
+}
+
+/**
+ * 把被抬高过（打开菜单、临时打字）的卡片放回桌面层。
+ * 对可见窗口直接调 HWND_BOTTOM 会被系统吞掉：先藏一下、沉到底、再不激活地显示回来才稳。
+ * 只在卡片确实被抬高过之后调用；别放进 5 秒的常规检查里，那样卡片会每 5 秒闪一下。
+ */
+export function restore(win) {
+  const a = load();
+  if (!a || win.isDestroyed() || !win.isVisible()) return;
+  win.hide();
+  setTimeout(() => {
+    if (!a || win.isDestroyed()) return;
+    a.SetWindowPos(hwndOf(win), HWND_BOTTOM, 0, 0, 0, 0, SWP_SINK);
+    win.showInactive();
+  }, 60);
 }
 
 /** Alt 现在按着吗。拉边改大小时按住 Alt 不吸附。 */

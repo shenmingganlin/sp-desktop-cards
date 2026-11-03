@@ -61,7 +61,11 @@ fs.writeFileSync(path.join(userData, "settings.json"), JSON.stringify({
   version: 2,
   tourDone: true,
   mode: "desktop",
-  cards: { today: { visible: true, bounds: { x: 600, y: 200, width: 320, height: 400 } } },
+  // 只留一张「今日」，放在偏左的位置：右边留给用户自己开着的卡片，免得检查时互相盖住
+  cards: {
+    focus: { visible: false },
+    today: { visible: true, bounds: { x: 300, y: 300, width: 320, height: 400 } },
+  },
 }));
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -150,7 +154,12 @@ try {
     await sleep(600);
     await check("按 Win+D：卡片还在桌面上", async () => {
       await winD();
-      assert.equal(rootAt(cx, cy), card, "卡片位置上应该是卡片自己");
+      const at = rootAt(cx, cy);
+      const st = await app.evaluate(({ BrowserWindow }) => {
+        const w = BrowserWindow.getAllWindows().find((x) => x.webContents.getURL().includes("card=today"));
+        return { visible: w.isVisible(), bounds: w.getBounds(), focusable: w.isFocusable() };
+      });
+      assert.equal(at, card, `卡片位置上应该是卡片自己（现在是 ${describe(at)}；卡片 ${JSON.stringify(st)}）`);
       await page.screenshot({ path: path.join(out, "after-win-d.png") });
     });
     // 原型的问题是卡片成了前台窗口，再按 Win+D 别的窗口就回不来。这里看窗口是否回来、卡片没抢前台。
@@ -221,6 +230,33 @@ try {
     assert.notEqual(rootAt(cx, cy), card, "卡片应该在盖着它的窗口下面");
     const focusable = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((x) => x.webContents.getURL().includes("card=today")).isFocusable());
     assert.equal(focusable, false);
+    await uncover();
+  });
+
+  // 0.2.4：从卡片菜单里操作完（比如切换显示方式），卡片曾经会留在其他窗口上面。
+  // 菜单关掉后必须沉回桌面层并变回不可激活。
+  await check("打开卡片菜单再关掉，卡片不会被留在其他窗口上面", async () => {
+    const r = await page.locator("#menu").boundingBox();
+    const x = info.b.x + r.x + r.width / 2;
+    const y = info.b.y + r.y + r.height / 2;
+    assert.equal(rootAt(x, y), card, "菜单按钮上面盖着别的窗口，不点");
+    await click(x, y);
+    await sleep(700);
+    const state = () => app.evaluate(({ BrowserWindow }) => {
+      const w = BrowserWindow.getAllWindows().find((x) => x.webContents.getURL().includes("card=today"));
+      return { focusable: w.isFocusable(), top: w.isAlwaysOnTop() };
+    });
+    assert.equal((await state()).focusable, true, "菜单没打开（卡片没进入临时可激活）");
+    key(0x1b); // Esc 关掉菜单
+    await sleep(1200);
+    await cover();
+    await app.evaluate(() => globalThis.__cover.focus());
+    // 等 5 秒的兜底定时器跑一轮
+    await sleep(5500);
+    assert.notEqual(rootAt(cx, cy), card, "卡片还压在别的窗口上面");
+    const st = await state();
+    assert.equal(st.focusable, false, "卡片还留在可激活状态");
+    assert.equal(st.top, false, "卡片被设成了置顶");
     await uncover();
   });
 } finally {

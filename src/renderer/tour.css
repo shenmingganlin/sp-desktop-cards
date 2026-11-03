@@ -1,40 +1,28 @@
 /* tour.css — 使用教程。颜色和卡片一致；示意图用 6 个 <i> 摆出来，每页一种摆法。 */
-:root {
-  --bg: #1f1f1f;
-  --bg-2: #2a2a2a;
-  --line: #3a3a3a;
-  --text: #e8e8e8;
-  --dim: #9a9a9a;
-  --accent: #ff4d8d;
-  --focus: #6cc3ff;
-  --break: #7bd88f;
-  color-scheme: dark;
-}
-* { box-sizing: border-box; }
-[hidden] { display: none !important; }
-html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 13px/1.6 "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif; user-select: none; }
+
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 13px/1.6 var(--font-ui); user-select: none; }
 body { display: flex; flex-direction: column; }
 main { flex: 1; padding: 18px 26px 0; overflow: auto; }
-h1 { margin: 0 0 12px; font-size: 16px; font-weight: 600; color: var(--accent); }
+h1 { margin: 0 0 12px; font-family: var(--font-title); font-size: 16px; font-weight: 600; color: var(--accent); }
 ul { margin: 12px 0 0; padding-left: 18px; }
 li { margin: 4px 0; }
-b { color: #fff; }
+b { color: var(--bright); }
 
 footer { display: flex; align-items: center; gap: 8px; padding: 12px 26px 16px; }
 #dots { flex: 1; display: flex; gap: 6px; }
-#dots span { width: 7px; height: 7px; border-radius: 50%; background: #444; }
+#dots span { width: 7px; height: 7px; border-radius: 50%; background: var(--bg-dots); }
 #dots span.on { background: var(--accent); }
-.btn { padding: 4px 14px; border: 1px solid #444; border-radius: 4px; background: var(--bg-2); color: inherit; font: inherit; cursor: pointer; }
-.btn:hover { background: #3a3a3a; }
-.btn.primary { border-color: var(--accent); background: var(--accent); color: #fff; }
-.btn.primary:hover { background: #ff6ba1; }
+.btn { padding: 4px 14px; border: var(--hairline) solid var(--line-strong); border-radius: var(--radius-sm); background: var(--bg-2); color: inherit; font: inherit; cursor: pointer; }
+.btn:hover { background: var(--bg-hover); }
+.btn.primary { border-color: var(--accent); background: var(--accent); color: var(--ink-on-accent); }
+.btn.primary:hover { background: var(--accent-hover); }
 
 /* ── 示意图 ── */
-.pic { position: relative; height: 112px; border: 1px solid var(--line); border-radius: 6px; background: #181818; overflow: hidden; }
-.pic i { position: absolute; display: none; border: 1px solid #555; border-radius: 3px; background: var(--bg-2); }
+.pic { position: relative; height: 112px; border: var(--hairline) solid var(--line); border-radius: var(--radius-md); background: var(--bg-tour-pic); overflow: hidden; }
+.pic i { position: absolute; display: none; border: var(--hairline) solid var(--line-soft); border-radius: var(--radius-sm); background: var(--bg-2); }
 /* 每张小卡片的顶栏 */
-.pic i::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 7px; border-radius: 2px 2px 0 0; background: #3a3a3a; }
-.pic i::after { position: absolute; left: 6px; top: 10px; font: 10px/1.2 "Segoe UI", "Microsoft YaHei UI", sans-serif; font-style: normal; color: var(--dim); }
+.pic i::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 7px; border-radius: 2px 2px 0 0; background: var(--bg-hover); }
+.pic i::after { position: absolute; left: 6px; top: 10px; font: 10px/1.2 var(--font-ui); font-style: normal; color: var(--dim); }
 
 /* 第 1 页：五张卡片拼成三列 */
 .cards i:nth-child(-n+5) { display: block; width: 74px; }
@@ -56,21 +44,21 @@ footer { display: flex; align-items: center; gap: 8px; padding: 12px 26px 16px; 
 .snap i:nth-child(3) { left: 230px; top: 30px; height: 56px; border-style: dashed; opacity: 0.75; }
 .snap i:nth-child(1)::after { content: "整组一起走"; color: var(--accent); }
 .snap i:nth-child(3)::after { content: "Alt + 拖"; }
-.snap i:nth-child(4) { display: block; left: 178px; top: 56px; width: 44px; height: 0; border: 0; border-top: 2px dashed #777; border-radius: 0; background: none; }
+.snap i:nth-child(4) { display: block; left: 178px; top: 56px; width: 44px; height: 0; border: 0; border-top: 2px dashed var(--mute); border-radius: 0; background: none; }
 .snap i:nth-child(4)::before { display: none; }
 
 /* 第 3 页：三种显示方式，各画一个小屏幕 */
-.modes i:nth-child(-n+3) { display: block; top: 16px; width: 92px; height: 80px; background: #202833; }
+.modes i:nth-child(-n+3) { display: block; top: 16px; width: 92px; height: 80px; background: var(--bg-tour-screen); }
 .modes i:nth-child(1) { left: 28px; }
 .modes i:nth-child(2) { left: 152px; }
 .modes i:nth-child(3) { left: 276px; }
-.modes i::before { left: 8px; right: 30px; top: 14px; height: 44px; border-radius: 2px; background: #3b4250; }
+.modes i::before { left: 8px; right: 30px; top: 14px; height: 44px; border-radius: 2px; background: var(--bg-tour-title); }
 .modes i::after { top: auto; bottom: 4px; left: 0; right: 0; text-align: center; }
 .modes i:nth-child(1)::after { content: "置顶"; }
 .modes i:nth-child(2)::after { content: "普通窗口"; }
 .modes i:nth-child(3)::after { content: "嵌入桌面"; }
 /* 卡片：置顶在窗口上面，普通被窗口压着，嵌入桌面在窗口下面 */
-.modes i:nth-child(4), .modes i:nth-child(5), .modes i:nth-child(6) { display: block; top: 34px; width: 26px; height: 34px; border-color: var(--accent); background: #3a2230; }
+.modes i:nth-child(4), .modes i:nth-child(5), .modes i:nth-child(6) { display: block; top: 34px; width: 26px; height: 34px; border-color: var(--accent); background: var(--bg-modes-dark); }
 .modes i:nth-child(4) { left: 82px; z-index: 2; }
 .modes i:nth-child(5) { left: 202px; z-index: 0; }
 .modes i:nth-child(6) { left: 330px; z-index: 0; opacity: 0.6; border-style: dashed; }
@@ -78,20 +66,20 @@ footer { display: flex; align-items: center; gap: 8px; padding: 12px 26px 16px; 
 .modes i:nth-child(2), .modes i:nth-child(3) { z-index: 1; background: transparent; }
 
 /* 第 4 页：番茄钟 */
-.pomo i:nth-child(1) { display: block; left: 110px; top: 18px; width: 180px; height: 76px; border-color: var(--accent); box-shadow: 0 0 0 3px #4a2233; }
-.pomo i:nth-child(1)::after { content: "25:00"; top: 18px; left: 14px; font: 600 26px/1 "Segoe UI", sans-serif; color: var(--focus); }
-.pomo i:nth-child(2) { display: block; left: 124px; top: 78px; width: 152px; height: 4px; border: 0; background: #333; }
+.pomo i:nth-child(1) { display: block; left: 110px; top: 18px; width: 180px; height: 76px; border-color: var(--accent); box-shadow: var(--shadow-glow); }
+.pomo i:nth-child(1)::after { content: "25:00"; top: 18px; left: 14px; font: 600 26px/1 var(--font-ui); color: var(--focus); }
+.pomo i:nth-child(2) { display: block; left: 124px; top: 78px; width: 152px; height: 4px; border: 0; background: var(--bg-bar); }
 .pomo i:nth-child(2)::before { right: 40%; height: 4px; background: var(--focus); }
 .pomo i:nth-child(3) { display: block; left: 222px; top: 34px; width: 58px; height: 22px; border: 0; background: var(--accent); }
 .pomo i:nth-child(3)::before { display: none; }
-.pomo i:nth-child(3)::after { content: "▶ 专注"; top: 4px; left: 9px; color: #fff; }
+.pomo i:nth-child(3)::after { content: "▶ 专注"; top: 4px; left: 9px; color: var(--ink-on-accent); }
 
 /* 第 5 页：任务行 */
-.tasks i:nth-child(-n+3) { display: block; left: 70px; width: 260px; height: 24px; border-color: #333; background: #222; }
+.tasks i:nth-child(-n+3) { display: block; left: 70px; width: 260px; height: 24px; border-color: var(--line); background: var(--bg-tour-task); }
 .tasks i:nth-child(1) { top: 16px; }
-.tasks i:nth-child(2) { top: 44px; background: #262626; }
+.tasks i:nth-child(2) { top: 44px; background: var(--bg-tour-task-alt); }
 .tasks i:nth-child(3) { top: 72px; }
-.tasks i:nth-child(-n+3)::before { left: 7px; top: 6px; width: 10px; height: 10px; right: auto; border: 1.5px solid #777; border-radius: 50%; background: none; }
+.tasks i:nth-child(-n+3)::before { left: 7px; top: 6px; width: 10px; height: 10px; right: auto; border: 1.5px solid var(--mute); border-radius: 50%; background: none; }
 .tasks i:nth-child(1)::after { content: "写周报"; top: 5px; left: 26px; font-size: 11px; color: var(--text); }
 .tasks i:nth-child(2)::after { content: "整理资料                                    ▶"; top: 5px; left: 26px; font-size: 11px; color: var(--text); white-space: pre; }
 .tasks i:nth-child(3)::after { content: "+ 新任务，回车添加"; top: 5px; left: 26px; font-size: 11px; color: var(--dim); }

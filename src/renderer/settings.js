@@ -68,6 +68,7 @@
     input.addEventListener("change", () => act("setCardVisible", { type: input.dataset.card, visible: input.checked }));
   }
 
+  $("appearance-button").addEventListener("click", () => act("openAppearance"));
   $("reset-layout").addEventListener("click", () => act("resetLayout"));
   $("chime-test").addEventListener("click", (e) => {
     e.preventDefault(); // 按钮在 label 里，别顺带切换旁边的勾选框
@@ -105,6 +106,14 @@
   function render() {
     const s = state.settings;
     if (!s) return;
+    if (window.WTheme) window.WTheme.apply(s.themeResolved);
+    const current = $("theme-current");
+    if (current) current.textContent = s.themeName ? `当前：${s.themeName}` : "";
+    const ext = $("theme-external");
+    if (ext) {
+      ext.hidden = !s.themeSource;
+      ext.textContent = s.themeSource ? `皮肤正由「${s.themeSource}」设置；要改请到那边关掉。` : "";
+    }
     for (const input of document.querySelectorAll("[data-key]")) {
       if (document.activeElement === input) continue;
       if (input.dataset.key === "quickAddProjectId") continue;

@@ -7,6 +7,10 @@
 
   window.widget.onEvent((e) => {
     if (!e || typeof e.type !== "string") return;
+    if (e.type === "theme") {
+      if (window.WTheme) window.WTheme.apply(e.theme);
+      return;
+    }
     if (e.type === "progress") {
       const percent = Math.max(0, Math.min(1, Number(e.percent) || 0));
       $("fill").style.width = `${Math.round(percent * 100)}%`;

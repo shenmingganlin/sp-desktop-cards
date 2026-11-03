@@ -1,0 +1,369 @@
+/* theme.css — 所有皮肤都在这儿。加一套皮肤只要加一组变量；各页面的 CSS 只用 var()。
+   默认是「深夜」：0.2.3 及以前的深灰 + 玫红，升级后视觉零变化。
+   其余皮肤来自 Hana 的主题，颜色、圆角、细边、标题字体都跟着 Hana 走：
+   暖纸、青夜、素白、草香、沉思、Absolutely、随时准备接住你、用户彻底怒了、新暖纸、青夜·高对比、珊瑚。 */
+
+:root {
+  /* 表面 */
+  --bg: #1f1f1f;
+  --bg-2: #2a2a2a;
+  --bg-hover: #3a3a3a;
+  --bg-hover-2: #4a4a4a;
+  --bg-row-hover: #262626;
+  --bg-row-current: #2b2430;
+  --bg-attention: #4a2233;
+  --bg-banner: #3a2a1a;
+  --bg-schedule: #24323d;
+  --bg-schedule-current: #3a2533;
+  --bg-tour-pic: #181818;
+  --bg-tour-screen: #202833;
+  --bg-tour-title: #3b4250;
+  --bg-tour-task: #222222;
+  --bg-tour-task-alt: #262626;
+  --bg-toast: #3a3a3a;
+  --bg-scroll: #444444;
+  --bg-dots: #444444;
+  --bg-chip: #333333;
+  --bg-cell-hover: #2a2a2a;
+  --bg-cell-selected: #333333;
+  --bg-bar: #333333;
+  --bg-update-bar: #3c3c3c;
+  --bg-modes-dark: #3a2230;
+
+  /* 文字 */
+  --text: #e8e8e8;
+  --dim: #9a9a9a;
+  --mute: #777777;
+  --faint: #666666;
+  --ghost: #555555;
+  --bright: #ffffff;
+  --ink-on-accent: #ffffff;
+
+  /* 线 */
+  --line: #333333;
+  --line-2: #2a2a2a;
+  --line-3: #2c2c2c;
+  --line-strong: #444444;
+  --line-soft: #555555;
+  --line-dashed: #4a5a66;
+  --line-dashed-soft: #555555;
+
+  /* 强调与语义 */
+  --accent: #ff4d8d;
+  --accent-hover: #ff6ba1;
+  --accent-soft: #4a2233;
+  --focus: #6cc3ff;
+  --break: #7bd88f;
+  --ok: #7bd88f;
+  --warn: #ffb347;
+  --danger: #ff6b6b;
+
+  /* 形状与字体 */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --hairline: 1px;
+  --font-ui: "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+  --font-title: var(--font-ui);
+  --shadow-popup: 0 2px 8px rgba(0, 0, 0, 0.4);
+  --shadow-glow: 0 0 0 3px #4a2233;
+
+  color-scheme: dark;
+  accent-color: var(--accent);
+}
+
+/* ── Hana 皮肤共用的派生色 ──
+   每套皮肤只写 Hana 自己的十几个变量（bg、bg-card、sidebar、text、border、accent、green、coral、danger、mood），
+   这里用 color-mix 算出卡片需要的其余角色。顺序放在各主题块前面，主题可以再覆盖个别 token。 */
+[data-theme="hana"],
+[data-theme="warm-paper"],
+[data-theme="midnight"],
+[data-theme="high-contrast"],
+[data-theme="grass-aroma"],
+[data-theme="contemplation"],
+[data-theme="absolutely"],
+[data-theme="delve"],
+[data-theme="deep-think"],
+[data-theme="new-warm-paper"],
+[data-theme="midnight-contrast"],
+[data-theme="coral"] {
+  --bg-hover-2: color-mix(in srgb, var(--bg-hover), var(--text) 6%);
+  --bg-row-hover: color-mix(in srgb, var(--text) 4%, transparent);
+  --bg-row-current: color-mix(in srgb, var(--accent) 12%, transparent);
+  --bg-attention: color-mix(in srgb, var(--accent) 18%, transparent);
+  --bg-banner: color-mix(in srgb, var(--warn) 14%, var(--bg-2));
+  --bg-schedule: color-mix(in srgb, var(--accent) 12%, var(--bg-2));
+  --bg-schedule-current: color-mix(in srgb, var(--accent) 20%, var(--bg-2));
+  --bg-tour-pic: var(--bg-hover);
+  --bg-tour-screen: var(--bg-2);
+  --bg-tour-title: color-mix(in srgb, var(--text) 18%, var(--bg-2));
+  --bg-tour-task: var(--bg-2);
+  --bg-tour-task-alt: var(--bg-hover);
+  --bg-toast: var(--bg-2);
+  --bg-scroll: color-mix(in srgb, var(--text) 20%, transparent);
+  --bg-dots: color-mix(in srgb, var(--text) 20%, transparent);
+  --bg-chip: var(--bg-hover);
+  --bg-cell-hover: color-mix(in srgb, var(--text) 5%, transparent);
+  --bg-cell-selected: color-mix(in srgb, var(--accent) 14%, var(--bg-2));
+  --bg-bar: color-mix(in srgb, var(--text) 12%, transparent);
+  --bg-update-bar: color-mix(in srgb, var(--text) 10%, transparent);
+  --bg-modes-dark: color-mix(in srgb, var(--accent) 14%, var(--bg-2));
+
+  --mute: color-mix(in srgb, var(--text) 62%, var(--bg));
+  --faint: color-mix(in srgb, var(--text) 50%, var(--bg));
+  --ghost: color-mix(in srgb, var(--text) 38%, var(--bg));
+  --bright: var(--text);
+
+  --line: var(--border);
+  --line-2: color-mix(in srgb, var(--border) 70%, transparent);
+  --line-3: color-mix(in srgb, var(--border) 50%, transparent);
+  --line-strong: color-mix(in srgb, var(--text) 22%, transparent);
+  --line-soft: color-mix(in srgb, var(--text) 16%, transparent);
+  --line-dashed: color-mix(in srgb, var(--accent) 40%, transparent);
+  --line-dashed-soft: color-mix(in srgb, var(--text) 25%, transparent);
+
+  --accent-soft: var(--accent-light);
+  --focus: var(--accent);
+  --break: var(--green);
+  --ok: var(--green);
+  --warn: var(--hana-warn, var(--coral));
+  --danger: var(--danger);
+
+  --radius-sm: 5px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --hairline: 1px;
+  --font-ui: "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+  --font-title: "Noto Serif SC", "Source Han Serif SC", "STSong", serif;
+  --shadow-popup: 0 4px 16px var(--shadow), 0 1px 3px color-mix(in srgb, var(--shadow) 60%, transparent);
+  --shadow-glow: 0 0 0 3px var(--accent-light);
+}
+
+/* ── 暖纸（Hana · 白天） ── */
+[data-theme="warm-paper"] {
+  --bg: #f8f4ed;
+  --bg-2: #fcfaf5;
+  --bg-hover: #f4f0ea;
+  --text: #3b3d3f;
+  --dim: #6b6f73;
+  --border: rgba(122, 96, 88, 0.18);
+  --accent: #537d96;
+  --accent-hover: #456a80;
+  --accent-light: rgba(83, 125, 150, 0.08);
+  --green: #7bae7f;
+  --coral: #ec8f8d;
+  --danger: #8b3a3a;
+  --hana-warn: #7d1c4a;
+  --shadow: rgba(59, 61, 63, 0.09);
+  --ink-on-accent: #ffffff;
+  color-scheme: light;
+}
+
+/* ── 青夜（Hana · 夜间） ── */
+[data-theme="midnight"] {
+  --bg: #3b4a54;
+  --bg-2: #445560;
+  --bg-hover: #34424b;
+  --text: #e1eaf0;
+  --dim: #b7c5ce;
+  --border: rgba(170, 121, 141, 0.16);
+  --accent: #c99aaf;
+  --accent-hover: #d8afc0;
+  --accent-light: rgba(201, 154, 175, 0.11);
+  --green: #8cc790;
+  --coral: #eab2a0;
+  --danger: #c77070;
+  --hana-warn: #eab2a0;
+  --shadow: rgba(0, 0, 0, 0.36);
+  --ink-on-accent: #3b4a54;
+  color-scheme: dark;
+}
+
+/* ── 素白（Hana · 高对比） ── */
+[data-theme="high-contrast"] {
+  --bg: #faf8f7;
+  --bg-2: #fdfbfa;
+  --bg-hover: #f3f1f0;
+  --text: #1a1c1e;
+  --dim: #4a4e52;
+  --border: rgba(92, 75, 70, 0.22);
+  --accent: #3a6b85;
+  --accent-hover: #2e5870;
+  --accent-light: rgba(58, 107, 133, 0.08);
+  --green: #5a9a5e;
+  --coral: #d4716f;
+  --danger: #7a3030;
+  --hana-warn: #6a1540;
+  --shadow: rgba(26, 28, 30, 0.11);
+  --ink-on-accent: #ffffff;
+  color-scheme: light;
+}
+
+/* ── 草香（Hana · Butter） ── */
+[data-theme="grass-aroma"] {
+  --bg: #f5f8f3;
+  --bg-2: #f9fbf7;
+  --bg-hover: #eff3ec;
+  --text: #2e3832;
+  --dim: #5e6b63;
+  --border: rgba(91, 168, 140, 0.22);
+  --accent: #5ba88c;
+  --accent-hover: #4d9179;
+  --accent-light: rgba(91, 168, 140, 0.08);
+  --green: #7bae7f;
+  --coral: #d4887a;
+  --danger: #8b4a3a;
+  --hana-warn: #6a5040;
+  --shadow: rgba(46, 56, 50, 0.09);
+  --ink-on-accent: #2e3832;
+  color-scheme: light;
+}
+
+/* ── 沉思（Hana · Ming） ── */
+[data-theme="contemplation"] {
+  --bg: #f3f5f7;
+  --bg-2: #f8f9fb;
+  --bg-hover: #eceff2;
+  --text: #2c3238;
+  --dim: #5a6570;
+  --border: rgba(126, 153, 168, 0.22);
+  --accent: #7e99a8;
+  --accent-hover: #6b8594;
+  --accent-light: rgba(126, 153, 168, 0.08);
+  --green: #6fa87e;
+  --coral: #c4827c;
+  --danger: #8b4040;
+  --hana-warn: #7d5a6a;
+  --shadow: rgba(44, 50, 56, 0.09);
+  --ink-on-accent: #2c3238;
+  color-scheme: light;
+}
+
+/* ── Absolutely（Hana · 有一点点熟悉） ── */
+[data-theme="absolutely"] {
+  --bg: #f4f3ee;
+  --bg-2: #faf9f5;
+  --bg-hover: #edeae2;
+  --text: #2d2b28;
+  --dim: #6b6864;
+  --border: rgba(177, 173, 161, 0.28);
+  --accent: #b5846e;
+  --accent-hover: #a27460;
+  --accent-light: rgba(181, 132, 110, 0.08);
+  --green: #7bae7f;
+  --coral: #c4917e;
+  --danger: #8b3a3a;
+  --hana-warn: #8c6a58;
+  --shadow: rgba(45, 43, 40, 0.07);
+  --ink-on-accent: #2d2b28;
+  color-scheme: light;
+}
+
+/* ── 随时准备接住你（Hana · 探究一下） ── */
+[data-theme="delve"] {
+  --bg: #ffffff;
+  --bg-2: #f7f7f8;
+  --bg-hover: #f0f0f0;
+  --text: #1a1a1a;
+  --dim: #6e6e6e;
+  --border: rgba(0, 0, 0, 0.1);
+  --accent: #1a1a1a;
+  --accent-hover: #000000;
+  --accent-light: rgba(0, 0, 0, 0.05);
+  --green: #5cb85c;
+  --coral: #d9746c;
+  --danger: #8b3a3a;
+  --hana-warn: #4a4a4a;
+  --shadow: rgba(0, 0, 0, 0.06);
+  --ink-on-accent: #ffffff;
+  color-scheme: light;
+}
+
+/* ── 用户彻底怒了（Hana · 小鲸鱼） ── */
+[data-theme="deep-think"] {
+  --bg: #fcfcfd;
+  --bg-2: #f8f8fa;
+  --bg-hover: #f0f0f2;
+  --text: #1d1d1f;
+  --dim: #65656b;
+  --border: rgba(0, 0, 0, 0.09);
+  --accent: #636ae8;
+  --accent-hover: #5158d4;
+  --accent-light: rgba(99, 106, 232, 0.06);
+  --green: #34a853;
+  --coral: #d9746c;
+  --danger: #8b3a3a;
+  --hana-warn: #5158d4;
+  --shadow: rgba(0, 0, 0, 0.05);
+  --ink-on-accent: #ffffff;
+  color-scheme: light;
+}
+
+/* ── 新暖纸（Hana · 纸本） ── */
+[data-theme="hana"],
+[data-theme="new-warm-paper"] {
+  --bg: #f5efe4;
+  --bg-2: #fbf7ee;
+  --bg-hover: #efe8db;
+  --text: #2a2622;
+  --dim: #4a433c;
+  --border: #d8cfbe;
+  --accent: #537d96;
+  --accent-hover: #3f6179;
+  --accent-light: rgba(83, 125, 150, 0.08);
+  --green: #4a6b4a;
+  --coral: #8b2c1f;
+  --danger: #8b2c1f;
+  --hana-warn: #947046;
+  --shadow: rgba(42, 38, 34, 0.04);
+  --radius-sm: 2px;
+  --radius-md: 3px;
+  --radius-lg: 4px;
+  --hairline: 0.5px;
+  --ink-on-accent: #fbf7ee;
+  color-scheme: light;
+}
+
+/* ── 青夜·高对比（Hana · 清晰） ── */
+[data-theme="midnight-contrast"] {
+  --bg: #26343d;
+  --bg-2: #30414b;
+  --bg-hover: #202c34;
+  --text: #f0f6fa;
+  --dim: #d3e0e8;
+  --border: rgba(230, 177, 196, 0.26);
+  --accent: #e6b1c4;
+  --accent-hover: #f0c4d3;
+  --accent-light: rgba(230, 177, 196, 0.14);
+  --green: #a8ddaa;
+  --coral: #f1bead;
+  --danger: #e28b8b;
+  --hana-warn: #f1bead;
+  --shadow: rgba(0, 0, 0, 0.44);
+  --ink-on-accent: #26343d;
+  color-scheme: dark;
+}
+
+/* ── 珊瑚（Hana · 春日和纸） ── */
+[data-theme="coral"] {
+  --bg: #fdf6ec;
+  --bg-2: #fffbf3;
+  --bg-hover: #fcf1e4;
+  --text: #1a3049;
+  --dim: #314153;
+  --border: rgba(243, 126, 99, 0.18);
+  --accent: #1a3049;
+  --accent-hover: #243a55;
+  --accent-light: rgba(26, 48, 73, 0.07);
+  --green: #6e8c7a;
+  --coral: #f37e63;
+  --danger: #a3483b;
+  --hana-warn: #c86f4a;
+  --shadow: rgba(26, 48, 73, 0.08);
+  --ink-on-accent: #ffffff;
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+/* 带 display 的规则会盖掉 hidden 属性，这里统一让 hidden 生效。 */
+[hidden] { display: none !important; }
