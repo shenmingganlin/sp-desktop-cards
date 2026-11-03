@@ -110,11 +110,15 @@ export function isForeground(win) {
   return big(a.GetForegroundWindow()) === hwndOf(win);
 }
 
-/** 沉到最底层（仍在桌面之上）。 */
+/**
+ * 沉到最底层（仍在桌面之上）。
+ * 必须带 SWP_NOOWNERZORDER：卡片的 owner 是桌面，少了它这次 SetWindowPos 会被系统吞掉，
+ * 定时器每 5 秒调一次，看起来就是「卡片过一会儿又跑到别的窗口上面」。
+ */
 export function sink(win) {
   const a = load();
   if (!a || win.isDestroyed()) return;
-  a.SetWindowPos(hwndOf(win), HWND_BOTTOM, 0, 0, 0, 0, SWP_KEEP);
+  a.SetWindowPos(hwndOf(win), HWND_BOTTOM, 0, 0, 0, 0, SWP_SINK);
 }
 
 /**
@@ -140,24 +144,18 @@ export function isAtDesktopLayer(win, others = []) {
 
 /**
  * 把被抬高过（打开菜单、临时打字）的卡片放回桌面层。
- * 0.5.1 以前这里是「先 hide、沉底、再 showInactive」：沉底确实稳，但每开关一次菜单卡片都会消失约 70ms，
- * 看起来就是闪一下；菜单开着超过 5 秒时兜底定时器再来一次，还会连闪两下。
- * 现在直接 SetWindowPos(HWND_BOTTOM) 沉底，不隐藏窗口，所以不会闪。沉底被系统吞掉（返回 false 或位置没变）时
- * 才退回到原来的隐藏重显示。
+ * 全程不隐藏窗口：hide/show 会让卡片肉眼可见地消失一下。沉底没到位时隔 100ms 再补一次，
+ * 两次都不行就先放着——卡片 owner 还是桌面，下一次 5 秒兜底或下一次菜单操作会再沉。
  */
 export function restore(win, others = []) {
   const a = load();
   if (!a || win.isDestroyed() || !win.isVisible()) return;
-  const h = hwndOf(win);
-  a.SetWindowPos(h, HWND_BOTTOM, 0, 0, 0, 0, SWP_SINK);
+  a.SetWindowPos(hwndOf(win), HWND_BOTTOM, 0, 0, 0, 0, SWP_SINK);
   if (isAtDesktopLayer(win, others)) return;
-  // 沉底没生效：退回「藏一下再显示」，至少把卡片从别的窗口上面弄走。
-  win.hide();
   setTimeout(() => {
-    if (!a || win.isDestroyed()) return;
+    if (!a || win.isDestroyed() || !win.isVisible()) return;
     a.SetWindowPos(hwndOf(win), HWND_BOTTOM, 0, 0, 0, 0, SWP_SINK);
-    win.showInactive();
-  }, 60);
+  }, 100);
 }
 
 /** Alt 现在按着吗。拉边改大小时按住 Alt 不吸附。 */
