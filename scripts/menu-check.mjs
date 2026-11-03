@@ -222,6 +222,31 @@ try {
     assert.equal(await atDesktopLayer(), true, "还原之后过几秒也要回到桌面层");
   });
 
+  await check("Win+D 显示桌面时点菜单，其他卡片不消失", async () => {
+    const shell = BigInt(GetShellWindow());
+    const aboveShell = async (m) => above(await hwndOf(m), shell) === true;
+    await winD();
+    await sleep(1200);
+    for (const m of ["card=focus", "card=today", "card=month"]) {
+      assert.equal(await aboveShell(m), true, `${m} 在显示桌面时应该在桌面上面`);
+    }
+    await today.locator("#menu").click();
+    await sleep(900);
+    // 这时候 shell 在最上面，把别的卡片沉底 = 沉到壁纸后面，看起来就是它们消失了
+    for (const m of ["card=focus", "card=month"]) {
+      assert.equal(await aboveShell(m), true, `开菜单时 ${m} 被沉到壁纸后面了`);
+    }
+    assert.equal(await visible(), true, "卡片应该还在");
+    await esc();
+    await sleep(1200);
+    for (const m of ["card=focus", "card=month"]) {
+      assert.equal(await aboveShell(m), true, `关菜单后 ${m} 还在壁纸后面`);
+    }
+    await winD();
+    await sleep(1000);
+    assert.equal(await atDesktopLayer(), true, "还原桌面后卡片应该回到桌面层");
+  });
+
   await check("菜单关掉后放 8 秒（5 秒兜底跑两轮），卡片仍贴着桌面", async () => {
     await watch();
     await today.locator("#menu").click();

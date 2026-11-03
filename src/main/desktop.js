@@ -180,6 +180,8 @@ export function isAtDesktopLayer(win, others = []) {
 export function restore(win, others = []) {
   const a = load();
   if (!a || win.isDestroyed() || !win.isVisible()) return;
+  // 桌面正被显示（Win+D）时 shell 在最上面，沉底会让卡片藏到壁纸后面，等它落回去再收。
+  if (desktopIsRaised()) return;
   a.SetWindowPos(hwndOf(win), HWND_BOTTOM, 0, 0, 0, 0, SWP_SINK);
   if (isAtDesktopLayer(win, others)) return;
   setTimeout(() => {

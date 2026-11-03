@@ -525,8 +525,18 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
       w.focus();
       // 卡片的 owner 都是桌面，激活一张会把同组的其他卡片一起抬到普通窗口上面。
       // 这里把其余的立刻沉回去，只留弹出菜单的这张在上面。
-      for (const [t, other] of alive()) {
-        if (t !== type && other.isVisible() && !attending.has(t)) desktop.sink(other);
+      // 但桌面正被显示（Win+D）时不能沉：shell 在上面，沉底等于藏到壁纸后面，另外几张会整个消失。
+      if (!desktop.desktopIsRaised()) {
+        const sinkOthers = () => {
+          if (mode() !== "desktop" || desktop.desktopIsRaised()) return;
+          for (const [t, other] of alive()) {
+            if (t !== type && other.isVisible() && !attending.has(t)) desktop.sink(other);
+          }
+        };
+        // focus() 是异步派发到 UI 线程的，整组被抬起来可能比这次沉底晚一拍，所以再补两次。
+        sinkOthers();
+        setTimeout(sinkOthers, 50);
+        setTimeout(sinkOthers, 200);
       }
     }
     menu.popup({
