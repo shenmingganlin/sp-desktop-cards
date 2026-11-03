@@ -452,8 +452,8 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
   }
 
   /**
-   * 把临时抬高过的卡片放回桌面层。菜单关掉后焦点会回到卡片，直接沉底会被系统吞掉，
-   * 必须藏一下再沉；标志位保证只做一次，不会每次检查都闪。
+   * 把临时抬高过的卡片放回桌面层。0.5.1 起沉底不再隐藏窗口（见 desktop.restore），
+   * 所以开关菜单时卡片不会闪；标志位保证只做一次。
    */
   function leaveRaised(type) {
     const w = wins.get(type);
@@ -465,7 +465,9 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
     if (!w.isVisible()) return;
     raised.delete(type);
     w.setFocusable(false);
-    desktop.restore(w);
+    // 别的卡片可能就压在它下面，判断「回到桌面层了」时要认它们。
+    const others = alive().filter(([t]) => t !== type).map(([, other]) => other);
+    desktop.restore(w, others);
   }
 
   /**

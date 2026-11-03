@@ -101,6 +101,7 @@ npm start               # 运行
 npm test                # 单元测试：数据整理、重复任务、吸附、番茄钟、设置迁移、客户端
 npm run smoke           # 用假 SP 启动真实窗口，每张卡片截图，输出到 .smoke/
 npm run ui-check        # 用 Playwright 点一遍：勾选、计时、番茄钟、新建、翻页、折叠、拖动、设置、断线
+npm run menu-check      # 嵌入桌面模式下开关卡片菜单，卡片不闪、不消失，关掉后回到桌面层
 npm run desktop-check   # 嵌入桌面模式真机检查（会按 Win+D、移动鼠标，运行时别碰电脑）
 npm run dist            # 打 Windows 安装包和 zip，输出到 dist/
 ```

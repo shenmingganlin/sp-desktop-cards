@@ -31,6 +31,7 @@ function load() {
       IsWindowVisible: u.func(`bool IsWindowVisible(${H} h)`),
       ShowWindow: u.func(`bool ShowWindow(${H} h, int cmd)`),
       GetForegroundWindow: u.func(`${H} GetForegroundWindow()`),
+      GetTopWindow: u.func(`${H} GetTopWindow(${H} h)`),
     };
   } catch {
     api = false;
@@ -40,6 +41,7 @@ function load() {
 
 const GWLP_HWNDPARENT = -8;
 const GW_OWNER = 4;
+const GW_HWNDNEXT = 2;
 const HWND_BOTTOM = 1n;
 const SWP_KEEP = 0x0001 | 0x0002 | 0x0010; // NOSIZE | NOMOVE | NOACTIVATE
 const SWP_SINK = SWP_KEEP | 0x0200; // + NOOWNERZORDER：卡片 owner 是桌面，少了它 HWND_BOTTOM 会被系统吞掉
@@ -116,13 +118,40 @@ export function sink(win) {
 }
 
 /**
- * 把被抬高过（打开菜单、临时打字）的卡片放回桌面层。
- * 对可见窗口直接调 HWND_BOTTOM 会被系统吞掉：先藏一下、沉到底、再不激活地显示回来才稳。
- * 只在卡片确实被抬高过之后调用；别放进 5 秒的常规检查里，那样卡片会每 5 秒闪一下。
+ * 卡片是不是已经贴着桌面：从卡片往下（GW_HWNDNEXT）走到桌面窗口，中间只有自家的其他卡片。
+ * others 是其他卡片窗口的句柄，多张卡片一起拼着的时候每张都在对方上面，不能只认「下一个就是桌面」。
  */
-export function restore(win) {
+export function isAtDesktopLayer(win, others = []) {
+  const a = load();
+  if (!a || win.isDestroyed()) return false;
+  const host = iconsHost();
+  if (!host) return false;
+  const own = new Set([hwndOf(win), ...others.filter((o) => o && !o.isDestroyed()).map((o) => hwndOf(o))]);
+  let cur = big(a.GetWindow(hwndOf(win), GW_HWNDNEXT));
+  let i = 0;
+  while (cur && i < 64) {
+    if (cur === host) return true;
+    if (!own.has(cur)) return false;
+    cur = big(a.GetWindow(cur, GW_HWNDNEXT));
+    i += 1;
+  }
+  return false;
+}
+
+/**
+ * 把被抬高过（打开菜单、临时打字）的卡片放回桌面层。
+ * 0.5.1 以前这里是「先 hide、沉底、再 showInactive」：沉底确实稳，但每开关一次菜单卡片都会消失约 70ms，
+ * 看起来就是闪一下；菜单开着超过 5 秒时兜底定时器再来一次，还会连闪两下。
+ * 现在直接 SetWindowPos(HWND_BOTTOM) 沉底，不隐藏窗口，所以不会闪。沉底被系统吞掉（返回 false 或位置没变）时
+ * 才退回到原来的隐藏重显示。
+ */
+export function restore(win, others = []) {
   const a = load();
   if (!a || win.isDestroyed() || !win.isVisible()) return;
+  const h = hwndOf(win);
+  a.SetWindowPos(h, HWND_BOTTOM, 0, 0, 0, 0, SWP_SINK);
+  if (isAtDesktopLayer(win, others)) return;
+  // 沉底没生效：退回「藏一下再显示」，至少把卡片从别的窗口上面弄走。
   win.hide();
   setTimeout(() => {
     if (!a || win.isDestroyed()) return;
