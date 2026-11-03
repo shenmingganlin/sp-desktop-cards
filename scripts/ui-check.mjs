@@ -241,8 +241,9 @@ try {
   });
   // ── 设置窗口 ──
   await focus.evaluate(() => window.widget.action("openSettings"));
-  await until(() => app.windows().some((p) => p.url().endsWith("settings.html")), "设置窗口");
-  const settingsPage = app.windows().find((p) => p.url().endsWith("settings.html"));
+  // 设置窗口带 ?theme= 查询串，按路径包含判断，不能要求 URL 以 settings.html 结尾。
+  await until(() => app.windows().some((p) => p.url().includes("settings.html")), "设置窗口");
+  const settingsPage = app.windows().find((p) => p.url().includes("settings.html"));
   await settingsPage.locator("#conn.ok").waitFor();
   await shot(settingsPage, "settings");
   const saved = () => JSON.parse(fs.readFileSync(path.join(userData, "settings.json"), "utf8"));
@@ -301,6 +302,9 @@ try {
   const cursor = () => app.evaluate(({ screen }) => screen.getCursorScreenPoint());
   const ALT = 0x12;
   async function drag(type, dx, dy, { alt = false } = {}) {
+    // 系统级鼠标事件只发给最前面的窗口；先把这张卡激活，避免被设置窗或别的窗口挡住。
+    await pages[type].bringToFront();
+    await sleep(100);
     const b = await bounds(type);
     const x = b.x + 60;
     const y = b.y + 16;
@@ -349,6 +353,8 @@ try {
     });
 
     await check("改大小：拖专注的下边拉高，下面的今日跟着往下", async () => {
+      await focus.bringToFront();
+      await sleep(100);
       const f = await bounds("focus");
       const t = await bounds("today");
       const x = f.x + 150;
