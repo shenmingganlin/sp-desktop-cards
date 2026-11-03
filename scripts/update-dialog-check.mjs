@@ -22,6 +22,28 @@ const GetForegroundWindow = user32.func(`${BP} GetForegroundWindow()`);
 const PostMessageW = user32.func("bool PostMessageW(uintptr_t h, uint32_t msg, uintptr_t w, intptr_t l)");
 
 const FindWindowExW = user32.func(`${BP} FindWindowExW(${BP} parent, ${BP} after, str16 cls, str16 name)`);
+
+// 锁屏时没有任何窗口能变成前台（GetForegroundWindow 一直停在锁屏界面），
+// 「对话框在最前面」这条在锁屏下验不了，只能跳过，别当成产品故障。
+const wts = require("koffi").load("wtsapi32.dll");
+const kernel32 = require("koffi").load("kernel32.dll");
+const WTSQuerySessionInformationW = wts.func("bool WTSQuerySessionInformationW(uintptr_t server, uint32_t session, int cls, _Out_ void **buf, _Out_ uint32_t *bytes)");
+const WTSFreeMemory = wts.func("void WTSFreeMemory(void *p)");
+const ProcessIdToSessionId = kernel32.func("bool ProcessIdToSessionId(uint32_t pid, _Out_ uint32_t *sid)");
+const sessionLocked = () => {
+  const sid = Buffer.alloc(4);
+  if (!ProcessIdToSessionId(process.pid, sid)) return false;
+  const out = [null];
+  const bytes = Buffer.alloc(4);
+  if (!WTSQuerySessionInformationW(0n, sid.readUInt32LE(0), 25 /* WTSSessionInfoEx */, out, bytes)) return false;
+  try {
+    // WTSINFOEX 开头是 Level(4) + SessionId(4) + SessionState(4) + SessionFlags(4)；SessionFlags 0 = 已锁屏
+    const raw = Buffer.from(require("koffi").view(out[0], bytes.readUInt32LE(0)).slice());
+    return raw.readInt32LE(12) === 0;
+  } finally {
+    WTSFreeMemory(out[0]);
+  }
+};
 // 只找对话框类：整条 Z 序动辄几千个窗口，每次都走一遍又多又慢
 const dialogs = () => {
   const list = [];
@@ -85,10 +107,11 @@ const app = await _electron.launch({
 });
 
 const results = [];
+// fn 返回 "skip" 时记一条「－」，不算通过也不算失败（锁屏下有些项验不了）
 const check = async (name, fn) => {
   try {
-    await fn();
-    results.push(`✔ ${name}`);
+    const outcome = await fn();
+    results.push(outcome === "skip" ? `－ ${name}（锁屏，跳过）` : `✔ ${name}`);
   } catch (error) {
     results.push(`✖ ${name}: ${error.message.split("\n")[0]}`);
   }
@@ -108,6 +131,7 @@ try {
 
   await check("对话框弹在最前面（否则用户看不见）", async () => {
     assert.ok(found, "对话框没弹出来");
+    if (sessionLocked()) return "skip"; // 锁屏下前台恒为锁屏界面，这条无从验起
     // 窗口刚创建时前台还没切过去，给它一秒
     let fg = BigInt(GetForegroundWindow());
     for (let i = 0; i < 20 && fg !== found; i += 1) {
@@ -129,6 +153,7 @@ try {
   // 先把结果同步写出去：收尾（关 Electron）阶段偶发段错误，走管道的异步 stdout 会把输出整段吞掉，
   // 看起来就像「什么都没跑」。
   fs.writeSync(1, `${results.join("\n")}\n`);
+  if (results.some((r) => r.startsWith("－"))) fs.writeSync(1, "（锁屏时跑的自检，「在前台」那条不作数；解锁后再跑一遍才算数）\n");
   await app.evaluate(({ app: a }) => a.exit(0)).catch(() => {});
   await sp.close();
   server.close();
