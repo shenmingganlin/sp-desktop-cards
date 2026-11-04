@@ -278,6 +278,20 @@ const W = (() => {
     banner.hidden = !show;
     if (show) banner.textContent = state.error.message;
   }
+
+  // 不挡点击开着时，卡片上什么也点不动。不说明原因的话，用户只会以为程序卡死了。
+  // 展开时顶栏下面挂一条说明，折叠时只剩顶栏，就在顶栏放一个小图标。
+  function renderBlocked() {
+    const s = state.settings || {};
+    const on = !!s.clickThrough;
+    document.body.classList.toggle("click-through", on);
+    const key = s.clickThroughKeyText || "";
+    const text = key ? `${key} 切换` : "";
+    const chip = $("blocked-key");
+    if (chip.textContent !== text) chip.textContent = text;
+    chip.hidden = !text;
+    $("blocked-mark").title = on ? `不挡点击已开启，鼠标会穿过卡片${key ? `。按 ${key} 关掉` : ""}` : "";
+  }
   function renderEmpty(body) {
     const box = el("div", "empty");
     box.append(el("p", "", state.error ? state.error.message : "正在连接 Super Productivity…"));
@@ -306,6 +320,7 @@ const W = (() => {
     renderTools();
     renderSub();
     renderBanner();
+    renderBlocked();
 
     const sig = JSON.stringify([
       usable() && d.sig ? d.sig(state) : null,
@@ -402,9 +417,15 @@ const W = (() => {
     if (!e.target.closest("button, input, select")) act("toggleCollapsed");
   });
   $("collapse").addEventListener("click", () => act("toggleCollapsed"));
-  $("menu").addEventListener("click", () => act("menu"));
+  // 点完就把焦点还回去：菜单关掉时焦点会落回这个按钮，Chromium 判成键盘焦点，
+  // 给 ⋯ 画一圈 outline，看着像按钮一直按着没弹起来。Tab 进来的焦点不受影响。
+  $("menu").addEventListener("click", (e) => {
+    e.currentTarget.blur();
+    act("menu");
+  });
   head.addEventListener("contextmenu", (e) => {
     e.preventDefault();
+    e.target.closest("button")?.blur();
     act("menu");
   });
 

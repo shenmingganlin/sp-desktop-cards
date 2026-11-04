@@ -20,9 +20,9 @@ body {
 #note {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
   max-width: 100%;
-  padding: 9px 18px;
+  padding: 8px 18px;
   border: var(--hairline) solid var(--line-strong);
   border-radius: var(--radius-lg);
   background: var(--bg-2);
@@ -30,6 +30,13 @@ body {
   white-space: nowrap;
   /* 淡入淡出：窗口出现时别硬邦邦地跳出来 */
   animation: note-in 0.16s ease-out;
+}
+
+.lines {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
 }
 
 #mark {
@@ -45,7 +52,17 @@ body {
 #text {
   font-weight: 600;
   letter-spacing: 0.2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
+
+/* 第二行：当前快捷键。弱化一档，别和主文案抢。 */
+#hint {
+  font-size: 11px;
+  color: var(--dim);
+  letter-spacing: 0.02em;
+}
+#hint[hidden] { display: none; }
 
 @keyframes note-in {
   from { opacity: 0; transform: translateY(6px); }

@@ -10,6 +10,11 @@
     <link rel="stylesheet" href="cards.css" />
   </head>
   <body>
+    <!-- 图标画一次，两处引用：禁止符号（圆圈加斜杠）= 点不到 -->
+    <svg class="sprite" aria-hidden="true"><symbol id="i-blocked" viewBox="0 0 16 16">
+      <circle cx="8" cy="8" r="6.3" fill="none" stroke="currentColor" stroke-width="1.5" />
+      <path d="M3.7 12.3 12.3 3.7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+    </symbol></svg>
     <header id="head">
       <button id="collapse" class="icon" title="折叠/展开">▾</button>
       <div id="drag" title="拖动移动，拼在一起的整组一起走；按住 Alt 拖只挪这一张。双击折叠，右键出菜单。">
@@ -17,8 +22,17 @@
         <span id="sub"></span>
       </div>
       <div id="tools"></div>
+      <span id="blocked-mark" title="不挡点击已开启：鼠标会穿过卡片">
+        <svg class="ico"><use href="#i-blocked" /></svg>
+      </span>
       <button id="menu" class="icon" title="菜单">⋯</button>
     </header>
+    <!-- 不挡点击开着时一直挂着：卡片点不动，得让用户看见原因和关掉的办法 -->
+    <div id="blocked">
+      <svg class="ico"><use href="#i-blocked" /></svg>
+      <span class="label">当前不可点击</span>
+      <span class="kbd" id="blocked-key"></span>
+    </div>
     <div id="banner" hidden></div>
     <main id="body"></main>
     <footer id="foot"></footer>

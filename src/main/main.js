@@ -24,6 +24,7 @@ import * as theme from "./theme.js";
 import { isValidToken, readSpToken } from "./token.js";
 import * as updateCheck from "./update.js";
 import { adoptUserData } from "./usermigrate.js";
+import { windowAlive } from "./win.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const assets = path.join(here, "..", "..", "assets");
@@ -107,10 +108,12 @@ function setClickThrough(on) {
  */
 function showToast(text, on, ms = 1600) {
   if (SMOKE) return; // 自检时截图会被它挡住
-  const payload = { text, on: !!on, ms, theme: currentTheme().theme };
+  // 带上当前快捷键：穿透开着时卡片点不到，这是用户唯一能想起来怎么关的地方
+  const key = hotkey.keyText(settings.get().clickThroughKey);
+  const payload = { text, on: !!on, key, ms, theme: currentTheme().theme };
   toastPayload = payload;
   const width = 360;
-  const height = 64;
+  const height = 76;
   // 光标在哪块屏就浮在哪块屏的底部中间
   const area = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea;
   const bounds = {
@@ -119,7 +122,7 @@ function showToast(text, on, ms = 1600) {
     width,
     height,
   };
-  if (!toastWin || toastWin.isDestroyed()) {
+  if (!windowAlive(toastWin)) {
     toastWin = new BrowserWindow({
       ...bounds,
       frame: false,
@@ -145,7 +148,7 @@ function showToast(text, on, ms = 1600) {
     toastWin.webContents.on("will-navigate", (e) => e.preventDefault());
     toastWin.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
     toastWin.once("ready-to-show", () => {
-      if (!toastWin || toastWin.isDestroyed()) return;
+      if (!windowAlive(toastWin)) return;
       toastWin.showInactive();
       toastWin.webContents.send("event", { type: "toast", ...toastPayload });
     });
@@ -159,7 +162,7 @@ function showToast(text, on, ms = 1600) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => {
     toastPayload = null;
-    if (toastWin && !toastWin.isDestroyed()) toastWin.hide();
+    if (windowAlive(toastWin)) toastWin.hide();
   }, ms);
 }
 
@@ -174,7 +177,7 @@ function syncHotkey() {
     globalShortcut.unregister(hotkeyRegistered);
     hotkeyRegistered = "";
   }
-  if (!accel) return { ok: false, accelerator: "", message: "快捷键不完整。" };
+  if (!accel) return noteHotkey({ ok: false, accelerator: "", message: "快捷键不完整。" });
   let ok = false;
   try {
     ok = globalShortcut.register(accel, () => setClickThrough());
@@ -182,7 +185,21 @@ function syncHotkey() {
     ok = false;
   }
   if (ok) hotkeyRegistered = accel;
-  return { ok, accelerator: accel, message: ok ? "" : `${hotkey.keyText(settings.get().clickThroughKey)} 被别的程序占用了，换一个组合试试。` };
+  return noteHotkey({
+    ok,
+    accelerator: accel,
+    message: ok ? "" : `${hotkey.keyText(settings.get().clickThroughKey)} 被别的程序占用了，换一个组合试试。`,
+  });
+}
+
+/**
+ * 注册不上时把原因记下来，设置页会显示；注册上了就清掉。
+ * 只在成功时清很要紧：启动时留下的那条警告不会自己消失，用户换了个能用的组合，
+ * 设置页还会一直挂着「被别的程序占用了」。
+ */
+function noteHotkey(result) {
+  hotkeyNotice = result.ok ? "" : result.message || "";
+  return result;
 }
 
 /**
@@ -191,10 +208,7 @@ function syncHotkey() {
  */
 function announceHotkey() {
   const result = syncHotkey();
-  if (!result.ok && result.message) {
-    lastError = null; // 这不是 SP 的问题，别混进连接错误里
-    hotkeyNotice = result.message;
-  }
+  if (!result.ok) lastError = null; // 这不是 SP 的问题，别混进连接错误里
   return result;
 }
 
@@ -227,6 +241,8 @@ function setClickThroughKey(payload) {
     return { ok: false, message: `${hotkey.keyText(combo)} 被别的程序占用了，换一个组合试试。` };
   }
   hotkeyRegistered = accel;
+  // 注册成功了就把启动时留下的「被占用」警告清掉，不然换好了它还一直挂在设置页上
+  hotkeyNotice = "";
   settings.update({ clickThroughKey: combo });
   rebuildTrayMenu();
   pushState();
@@ -949,7 +965,7 @@ const cardActions = {
   focusInput: (_p, type) => (cards.requestFocus(type), OK),
   // 卡片 ⋯ 菜单里的「不挡点击」和托盘里的是同一项。注意：开了之后这张卡片就点不到了，
   // 关回去要走托盘或快捷键——所以托盘和快捷键这两个入口不能少。
-  toggleClickThrough: () => (setClickThrough(), OK),
+  toggleClickThrough: (p) => (setClickThrough(typeof p?.on === "boolean" ? p.on : undefined), OK),
   setShowDone: ({ value }) => (typeof value === "boolean" ? (saveSettings({ showDone: value }), OK) : null),
   navigate: ({ key, offset }) => (["schedule", "month"].includes(key) && [-1, 0, 1].includes(offset) ? navigate(key, offset) : null),
   selectDay: ({ day }) => {

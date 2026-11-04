@@ -373,6 +373,33 @@ try {
     await settingsPage.locator("#token-save").click();
     await settingsPage.locator("#toast", { hasText: "32 位" }).waitFor();
   });
+
+  // 回归：以前点完 ⋯，焦点会留在按钮上，菜单关掉时 Chromium 判成键盘焦点，
+  // 给按钮画一圈 outline，看着像一直按着。
+  await check("⋯ 点完不留焦点：菜单关掉后按钮不高亮", async () => {
+    const styles = () => today.evaluate(() => {
+      const b = document.getElementById("menu");
+      const cs = getComputedStyle(b);
+      return {
+        active: document.activeElement?.id || "",
+        focusVisible: b.matches(":focus-visible"),
+        outline: cs.outlineStyle,
+        background: cs.backgroundColor,
+      };
+    });
+    await today.locator("#menu").click();
+    await sleep(900);
+    await today.keyboard.press("Escape");
+    await sleep(800);
+    await today.mouse.move(4, 4); // 鼠标别停在按钮上，只看得见焦点留下的痕迹
+    await sleep(300);
+    const after = await styles();
+    assert.notEqual(after.active, "menu", "焦点还留在 ⋯ 上");
+    assert.equal(after.focusVisible, false, "⋯ 被判成键盘焦点，会画 outline");
+    assert.equal(after.outline, "none", `⋯ 还画着 ${after.outline}`);
+    assert.equal(after.background, "rgba(0, 0, 0, 0)", "⋯ 还带着 hover 底色");
+  });
+
   // ── 拖动：要真的按下鼠标（主进程会查物理按键状态），用 user32 发系统级鼠标事件 ──
   const require = createRequire(import.meta.url);
   const u = require("koffi").load("user32.dll");
