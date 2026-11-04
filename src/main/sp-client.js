@@ -93,6 +93,8 @@ export function createClient({ baseUrl = DEFAULT_BASE_URL, getToken, fetchImpl =
     createTask: (fields) => request("POST", "/tasks", fields),
     deleteTask: (taskId) => request("DELETE", `/tasks/${id(taskId)}`),
     setDone: (taskId, isDone) => request("PATCH", `/tasks/${id(taskId)}`, { isDone }),
+    /** 改任务的任意字段（排到今天、清掉钟点等）。SP 19.x 实测支持 dueDay / dueWithTime，清空传 null。 */
+    patchTask: (taskId, fields) => request("PATCH", `/tasks/${id(taskId)}`, fields),
     start: (taskId) => request("POST", `/tasks/${id(taskId)}/start`),
     stop: () => request("POST", "/task-control/stop"),
   };

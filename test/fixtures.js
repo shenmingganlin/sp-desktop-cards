@@ -45,12 +45,13 @@ export function sampleData(base = NOW) {
     task({ id: "standup", title: "站会", dueDay: TODAY, dueWithTime: rel(10), timeEstimate: 15 * MIN }),
     task({ id: "review", title: "评审设计稿", dueDay: TODAY, dueWithTime: rel(240), timeEstimate: 60 * MIN }),
     task({ id: "early", title: "回复邮件", dueDay: TODAY, dueWithTime: rel(-60) }), // 今天已过点
-    task({ id: "report", title: "写周报", dueDay: TODAY, timeEstimate: 45 * MIN, timeSpent: 20 * MIN, timeSpentOnDay: { [TODAY]: 20 * MIN } }),
+    task({ id: "report", title: "写周报", dueDay: TODAY, tagIds: ["work"], timeEstimate: 45 * MIN, timeSpent: 20 * MIN, timeSpentOnDay: { [TODAY]: 20 * MIN } }),
     task({ id: "parent", title: "整理发布", dueDay: TODAY, subTaskIds: ["c1", "c2", "c3"], timeEstimate: 70 * MIN, timeSpent: 30 * MIN }),
     task({ id: "c1", title: "改版本号", parentId: "parent", isDone: true, timeEstimate: 10 * MIN, timeSpent: 10 * MIN, timeSpentOnDay: { [TODAY]: 10 * MIN } }),
-    task({ id: "c2", title: "写更新说明", parentId: "parent", timeEstimate: 30 * MIN, timeSpent: 20 * MIN, timeSpentOnDay: { [TODAY]: 5 * MIN, [day(-1)]: 15 * MIN } }),
+    task({ id: "c2", title: "写更新说明", parentId: "parent", tagIds: ["work", "release"], timeEstimate: 30 * MIN, timeSpent: 20 * MIN, timeSpentOnDay: { [TODAY]: 5 * MIN, [day(-1)]: 15 * MIN } }),
     task({ id: "c3", title: "打包", parentId: "parent", timeEstimate: 30 * MIN }),
-    task({ id: "finished", title: "晨练", dueDay: TODAY, isDone: true, timeSpent: 30 * MIN, timeSpentOnDay: { [TODAY]: 30 * MIN } }),
+    // 晨练挂了两个标签：时间去向按标签看时它会被算两次，用来验证卡片的说明
+    task({ id: "finished", title: "晨练", dueDay: TODAY, tagIds: ["health", "routine"], isDone: true, timeSpent: 30 * MIN, timeSpentOnDay: { [TODAY]: 30 * MIN } }),
     task({ id: "late", title: "交水电费", dueDay: day(-2) }), // 两天前
     task({ id: "yday", title: "给老王回电话", dueDay: day(-1), dueWithTime: at(16, 30, -1) }),
     task({ id: "deadline", title: "报销", deadlineDay: day(-1) }),
@@ -80,7 +81,13 @@ export function sampleData(base = NOW) {
   return {
     allTasks: tasks,
     todayTasks,
-    tags: [{ id: "TODAY", title: "Today", taskIds: ["report", "parent", "finished", "standup", "review", "early"] }],
+    tags: [
+      { id: "TODAY", title: "Today", taskIds: ["report", "parent", "finished", "standup", "review", "early"] },
+      { id: "work", title: "工作", taskIds: ["report", "c2"] },
+      { id: "release", title: "发布", taskIds: ["c2"] },
+      { id: "health", title: "健康", taskIds: ["finished"] },
+      { id: "routine", title: "日常", taskIds: ["finished"] },
+    ],
     projects: [{ id: "INBOX_PROJECT", title: "收件箱" }, { id: "work", title: "工作" }],
     repeatCfgs,
     current: null,

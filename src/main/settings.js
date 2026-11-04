@@ -9,7 +9,7 @@ import path from "node:path";
 import { DEFAULT_POMODORO } from "./pomodoro.js";
 import { normalizeSkin } from "./theme.js";
 
-export const CARD_TYPES = ["focus", "today", "planner", "schedule", "month", "stats"];
+export const CARD_TYPES = ["focus", "today", "planner", "schedule", "month", "stats", "list", "heatmap", "triage", "breakdown"];
 export const CARD_SIZE = {
   focus: { width: 320, height: 132 },
   today: { width: 320, height: 380 },
@@ -17,6 +17,10 @@ export const CARD_SIZE = {
   schedule: { width: 320, height: 520 },
   month: { width: 320, height: 420 },
   stats: { width: 320, height: 300 },
+  list: { width: 320, height: 420 },
+  heatmap: { width: 340, height: 220 },
+  triage: { width: 320, height: 400 },
+  breakdown: { width: 320, height: 340 },
 };
 export const MODES = ["top", "normal", "desktop"];
 export const GAP = 6; // 拼在一起的卡片之间的间距
@@ -28,6 +32,10 @@ const DEFAULT_CARDS = Object.freeze({
   schedule: { visible: false, bounds: null, collapsed: false },
   month: { visible: false, bounds: null, collapsed: false },
   stats: { visible: false, bounds: null, collapsed: false },
+  list: { visible: false, bounds: null, collapsed: false },
+  heatmap: { visible: false, bounds: null, collapsed: false },
+  triage: { visible: false, bounds: null, collapsed: false },
+  breakdown: { visible: false, bounds: null, collapsed: false },
 });
 
 export const DEFAULTS = Object.freeze({
@@ -54,6 +62,9 @@ export const DEFAULTS = Object.freeze({
   autoUpdate: true, // 启动时顺手看看有没有新版本
   skipVersion: "", // 点过「跳过这个版本」的那个版本号
   lastUpdateCheck: 0, // 上次检查更新的时间戳，一天最多自动查一次
+  listSource: { kind: "project", id: "" }, // 清单卡片看哪个项目/标签；id 为空表示用第一个
+  breakdownBy: "tag", // 时间去向卡片按什么分摊：tag 标签 / project 项目
+  heatmapWeeks: 13, // 热力图卡片显示几周
 });
 
 const clampNumber = (v, min, max, fallback) =>
@@ -136,6 +147,12 @@ export function sanitize(input, base = DEFAULTS) {
   s.altHints = clampInt(input.altHints, 0, 99, s.altHints);
   if (typeof input.skipVersion === "string" && input.skipVersion.length < 40) s.skipVersion = input.skipVersion;
   s.lastUpdateCheck = clampInt(input.lastUpdateCheck, 0, Number.MAX_SAFE_INTEGER, s.lastUpdateCheck);
+  const ls = input.listSource;
+  if (ls && typeof ls === "object" && ["project", "tag"].includes(ls.kind) && typeof ls.id === "string" && ls.id.length < 200) {
+    s.listSource = { kind: ls.kind, id: ls.id };
+  }
+  if (input.breakdownBy === "tag" || input.breakdownBy === "project") s.breakdownBy = input.breakdownBy;
+  s.heatmapWeeks = clampInt(input.heatmapWeeks, 4, 53, s.heatmapWeeks);
   if (input.pomodoroSession === null || (input.pomodoroSession && typeof input.pomodoroSession === "object")) {
     const { phase, status, endsAt, remainingMs, durationMs, taskId } = input.pomodoroSession || {};
     s.pomodoroSession = input.pomodoroSession && { phase, status, endsAt, remainingMs, durationMs, taskId };

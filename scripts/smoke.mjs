@@ -14,7 +14,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const out = path.resolve(process.argv[2] || path.join(root, ".smoke"));
 fs.mkdirSync(out, { recursive: true });
 
-// 五张卡片排成几列，「专注」拼在「今日」上方
+// 卡片排成几列，「专注」拼在「今日」上方
 const card = (x, y, width, height) => ({ visible: true, collapsed: false, bounds: { x, y, width, height } });
 const ALL = {
   version: 2,
@@ -24,6 +24,10 @@ const ALL = {
     planner: card(366, 40, 320, 538),
     schedule: card(692, 40, 320, 538),
     month: card(1018, 40, 320, 470),
+    list: card(1344, 40, 320, 420),
+    heatmap: card(1670, 40, 340, 220),
+    triage: card(1670, 266, 320, 400),
+    breakdown: card(1344, 470, 320, 340),
   },
 };
 
@@ -63,7 +67,7 @@ const results = [];
 results.push(await run("all", {
   mutate: (d) => (d.current = d.allTasks.find((t) => t.id === "c2")),
   extraEnv: { SPW_SMOKE_SETTINGS: "1" },
-  expect: [...PNG("focus", "today", "planner", "schedule", "month"), "settings.png"],
+  expect: [...PNG("focus", "today", "planner", "schedule", "month", "list", "heatmap", "triage", "breakdown"), "settings.png"],
 }));
 // 0.1.0 的设置：迁移后只有「专注」和「今日」
 results.push(await run("migrate", {
@@ -84,7 +88,7 @@ results.push(await run("empty", {
     d.todayTasks = [];
     d.repeatCfgs = [];
   },
-  expect: PNG("focus", "today", "planner", "schedule", "month"),
+  expect: PNG("focus", "today", "planner", "schedule", "month", "list", "heatmap", "triage", "breakdown"),
 }));
 
 // 改名搬家：老目录（SP 今日小窗）和新目录（SP 桌面卡片）并排放在临时目录里，

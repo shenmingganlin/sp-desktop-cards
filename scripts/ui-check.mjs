@@ -293,6 +293,72 @@ try {
     await until(() => !app.windows().some((p) => cardOf(p) === "stats"), "统计窗口关掉");
   });
 
+  await check("清单：默认看第一个项目，换成标签后只剩那个标签的任务", async () => {
+    await settingsPage.locator("[data-card='list']").check();
+    await until(() => app.windows().some((p) => cardOf(p) === "list"), "清单窗口");
+    const list = app.windows().find((p) => cardOf(p) === "list");
+    // fixtures 的第一个项目是收件箱，未完成 12 项
+    await list.locator("#sub", { hasText: "项目" }).waitFor();
+    assert.ok((await list.locator("#body .row").count()) > 0, "应该有任务行");
+    await list.locator("#tools .icon.text", { hasText: "收件箱" }).waitFor();
+    // 换来源走设置接口，等价于在顶栏菜单里选了「工作」。
+    // 这里故意不点开原生菜单：菜单会一直开着挡住后面的真实鼠标拖动测试。
+    await settingsPage.evaluate(() => window.widget.action("saveSettings", { listSource: { kind: "tag", id: "work" } }));
+    await until(async () => (await list.locator("#tools .icon.text").textContent()) === "工作", "切到工作标签");
+    await list.locator(".row", { has: list.locator(".title", { hasText: /^写周报$/ }) }).waitFor();
+    // 工作标签下只有「写周报」和「写更新说明」，收件箱里别的不该出现
+    assert.equal(await list.locator("#body .row").count(), 2);
+    await shot(list, "list");
+    await settingsPage.locator("[data-card='list']").uncheck();
+    await until(() => !app.windows().some((p) => cardOf(p) === "list"), "清单窗口关掉");
+  });
+
+  await check("热力图：格子按天铺出来，今天那格有标记", async () => {
+    await settingsPage.locator("[data-card='heatmap']").check();
+    await until(() => app.windows().some((p) => cardOf(p) === "heatmap"), "热力图窗口");
+    const heat = app.windows().find((p) => cardOf(p) === "heatmap");
+    await heat.locator(".heat-cell").first().waitFor();
+    assert.equal(await heat.locator(".heat-col").count(), 13);
+    assert.equal(await heat.locator(".heat-cell").count(), 91);
+    assert.equal(await heat.locator(".heat-cell.today").count(), 1);
+    await heat.locator(".heat-total", { hasText: "13 周合计" }).waitFor();
+    await shot(heat, "heatmap");
+    await settingsPage.locator("[data-card='heatmap']").uncheck();
+    await until(() => !app.windows().some((p) => cardOf(p) === "heatmap"), "热力图窗口关掉");
+  });
+
+  await check("待整理：没排期的排到今天后离开这堆，SP 里 dueDay 真的变了", async () => {
+    await settingsPage.locator("[data-card='triage']").check();
+    await until(() => app.windows().some((p) => cardOf(p) === "triage"), "待整理窗口");
+    const triage = app.windows().find((p) => cardOf(p) === "triage");
+    await triage.locator(".row").first().waitFor();
+    // fixtures 里没排期的顶层任务：unplanned
+    const target = triage.locator(".row", { has: triage.locator(".title", { hasText: /^没排期的$/ }) });
+    await target.waitFor();
+    await target.locator(".link", { hasText: "排到今天" }).click({ force: true });
+    await until(() => task("unplanned")?.dueDay === TODAY, "SP 里 dueDay 变成今天");
+    await until(async () => (await target.count()) === 0, "排完后从没排期那堆消失");
+    await shot(triage, "triage");
+    await settingsPage.locator("[data-card='triage']").uncheck();
+    await until(() => !app.windows().some((p) => cardOf(p) === "triage"), "待整理窗口关掉");
+  });
+
+  await check("时间去向：按标签分摊，点按钮切成按项目", async () => {
+    await settingsPage.locator("[data-card='breakdown']").check();
+    await until(() => app.windows().some((p) => cardOf(p) === "breakdown"), "时间去向窗口");
+    const bd = app.windows().find((p) => cardOf(p) === "breakdown");
+    await bd.locator(".bd-row").first().waitFor();
+    // fixtures 里今天：工作 40、健康 30、日常 30、发布 20、没有标签 10
+    await bd.locator(".bd-row", { has: bd.locator(".bd-title", { hasText: "工作" }) }).waitFor();
+    await bd.locator(".bd-note", { hasText: "各算一次" }).waitFor();
+    await bd.locator("#tools .icon.text", { hasText: "按标签" }).click();
+    await until(async () => (await bd.locator("#sub").textContent()).includes("按项目"), "切成按项目");
+    assert.equal(await bd.locator(".bd-note").count(), 0); // 项目视角不会重复计数，没有那行说明
+    await shot(bd, "breakdown");
+    await settingsPage.locator("[data-card='breakdown']").uncheck();
+    await until(() => !app.windows().some((p) => cardOf(p) === "breakdown"), "时间去向窗口关掉");
+  });
+
   await check("设置：显示方式改成普通窗口再改回置顶", async () => {
     const onTop = () => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().filter((w) => w.webContents.getURL().includes("card=")).map((w) => w.isAlwaysOnTop()));
     assert.ok((await onTop()).every(Boolean));

@@ -5,9 +5,12 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { buildBreakdown, DIMENSIONS } from "./breakdown.js";
 import { addDays, addMonths, buildMonth, buildPlanner, buildSchedule } from "./calendar.js";
 import { CARD_TITLE, createCards } from "./cards.js";
 import * as desktop from "./desktop.js";
+import { buildHeatmap } from "./heatmap.js";
+import { buildList, listSources } from "./list.js";
 import { buildView, isDay, localDay, resolveToday } from "./model.js";
 import * as pomo from "./pomodoro.js";
 import { createPoller } from "./poller.js";
@@ -15,6 +18,7 @@ import { taskFields } from "./quickadd.js";
 import { CARD_TYPES, createSettingsStore, MODES } from "./settings.js";
 import { createClient, DEFAULT_BASE_URL, HINTS } from "./sp-client.js";
 import { buildStats } from "./stats.js";
+import { buildTriage } from "./triage.js";
 import * as theme from "./theme.js";
 import { isValidToken, readSpToken } from "./token.js";
 import * as updateCheck from "./update.js";
@@ -138,7 +142,8 @@ function cardView(type, todayView) {
   if (type === "focus" || type === "today") return todayView();
   const s = settings.get();
   const key = JSON.stringify([raw.listsAt, raw.current?.id ?? null, s.dayStartHour, currentDay(), s.showDone, type === "planner" && s.plannerDays,
-    type === "schedule" && [ui.scheduleDay, s.scheduleStartHour, s.scheduleEndHour], type === "month" && [ui.month, ui.selected]]);
+    type === "schedule" && [ui.scheduleDay, s.scheduleStartHour, s.scheduleEndHour], type === "month" && [ui.month, ui.selected],
+    type === "list" && s.listSource, type === "breakdown" && s.breakdownBy, type === "heatmap" && s.heatmapWeeks]);
   if (type === "planner") return cached(type, key, () => buildPlanner(raw, { dayStartHour: s.dayStartHour, days: s.plannerDays }));
   if (type === "schedule") {
     return cached(type, key, () => buildSchedule(raw, {
@@ -146,6 +151,20 @@ function cardView(type, todayView) {
     }));
   }
   if (type === "stats") return cached(type, key, () => buildStats(raw, { today: currentDay(), now: raw.now, dayStartHour: s.dayStartHour }));
+  if (type === "list") {
+    return cached(type, key, () => buildList(raw, {
+      kind: s.listSource.kind, id: s.listSource.id, showDone: s.showDone, dayStartHour: s.dayStartHour, now: raw.now,
+    }));
+  }
+  if (type === "heatmap") {
+    return cached(type, key, () => buildHeatmap(raw, { today: currentDay(), weeks: s.heatmapWeeks, dayStartHour: s.dayStartHour }));
+  }
+  if (type === "triage") {
+    return cached(type, key, () => buildTriage(raw, { today: currentDay(), now: raw.now }));
+  }
+  if (type === "breakdown") {
+    return cached(type, key, () => buildBreakdown(raw, { today: currentDay(), days: 7, by: s.breakdownBy }));
+  }
   return cached(type, key, () => buildMonth(raw, { dayStartHour: s.dayStartHour, month: ui.month, selected: ui.selected }));
 }
 
@@ -184,6 +203,8 @@ function pushState() {
     attention: cards.isAttending("focus"),
     snapshotAt: raw?.snapshotAt ?? null,
     ticking: raw?.ticking ?? null,
+    // 清单卡片的切换器要用的候选项目/标签
+    sources: raw ? listSources(raw) : { projects: [], tags: [] },
   };
   for (const type of cards.types()) {
     const view = raw ? cardView(type, todayView) : null;
@@ -354,6 +375,24 @@ function cardMenu(type) {
     { label: `隐藏「${CARD_TITLE[type]}」`, click: () => cards.setVisible(type, false) },
     { label: "退出", click: () => app.quit() },
   ]);
+}
+
+/**
+ * 清单卡片的来源切换菜单：项目和标签分两段，当前那个打勾。
+ * 用原生菜单，和卡片自己的 ⋯ 菜单一样不抢激活。
+ */
+function listMenu() {
+  const s = settings.get();
+  const { projects, tags } = raw ? listSources(raw) : { projects: [], tags: [] };
+  const pick = (source) => () => saveSettings({ listSource: { kind: source.kind, id: source.id } });
+  const section = (label, list) => (list.length ? [{ label, enabled: false }, ...list.map((src) => ({
+    label: src.title,
+    type: "radio",
+    checked: s.listSource.kind === src.kind && s.listSource.id === src.id,
+    click: pick(src),
+  }))] : []);
+  const items = [...section("项目", projects), ...(projects.length && tags.length ? [{ type: "separator" }] : []), ...section("标签", tags)];
+  return Menu.buildFromTemplate(items.length ? items : [{ label: "连上 SP 后显示项目和标签", enabled: false }]);
 }
 
 function rebuildTrayMenu() {
@@ -670,7 +709,7 @@ function saveSettings(patch) {
 const isId = (v) => typeof v === "string" && v.length > 0 && v.length < 200;
 // 设置窗口能改的字段；卡片位置、令牌、番茄统计走各自的通道
 const EDITABLE = ["mode", "theme", "locked", "opacity", "openAtLogin", "upcomingMinutes", "dayStartHour", "showDone", "plannerDays",
-  "scheduleStartHour", "scheduleEndHour", "quickAddProjectId", "pomodoro", "autoUpdate"];
+  "scheduleStartHour", "scheduleEndHour", "quickAddProjectId", "pomodoro", "autoUpdate", "breakdownBy", "heatmapWeeks", "listSource"];
 const pick = (obj, keys) => Object.fromEntries(keys.filter((k) => Object.hasOwn(obj, k)).map((k) => [k, obj[k]]));
 
 async function runTaskAction(fn) {
@@ -728,6 +767,12 @@ const cardActions = {
     return OK;
   },
   rendered: (_p, type) => (SMOKE && smokeStep(type), OK),
+  // 清单卡片：弹出项目/标签切换菜单
+  listMenu: (_p, type) => (cards.popup(type, listMenu()), OK),
+  // 时间去向卡片：标签/项目之间切换
+  setBreakdownBy: ({ by }) => (DIMENSIONS.includes(by) ? (saveSettings({ breakdownBy: by }), OK) : null),
+  // 待整理卡片：把任务排到今天。dueWithTime 要一起清掉，不然 SP 里还按原来的钟点算。
+  scheduleToday: ({ id }) => (isId(id) ? runTaskAction(() => client.patchTask(id, { dueDay: currentDay(), dueWithTime: null })) : null),
   ...pomoActions,
 };
 

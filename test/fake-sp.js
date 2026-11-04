@@ -98,6 +98,9 @@ export function startFakeSp({ token = "A".repeat(32), data, port = 0, host = "12
       if (req.method === "PATCH" && parts.length === 2) {
         if (typeof body.isDone === "boolean") t.isDone = body.isDone;
         if (t.isDone && state.current === t.id) state.current = null;
+        // SP 19.x 支持改排期字段，null 表示清空
+        if ("dueDay" in body) t.dueDay = body.dueDay;
+        if ("dueWithTime" in body) t.dueWithTime = body.dueWithTime;
         return ok(res, t);
       }
       if (req.method === "DELETE" && parts.length === 2) {

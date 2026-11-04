@@ -11,7 +11,10 @@ import { boundingBox, defaultSpot, followResize, groupOf, isOnScreen, resizeRect
 import { backgroundOf } from "./theme.js";
 
 export const HEADER_HEIGHT = 34;
-export const CARD_TITLE = { focus: "专注", today: "今日", planner: "规划", schedule: "日程", month: "月历", stats: "统计" };
+export const CARD_TITLE = {
+  focus: "专注", today: "今日", planner: "规划", schedule: "日程", month: "月历", stats: "统计",
+  list: "清单", heatmap: "热力图", triage: "待整理", breakdown: "时间去向",
+};
 const MIN_SIZE = {
   focus: { width: 240, height: 96 },
   today: { width: 240, height: 160 },
@@ -19,6 +22,10 @@ const MIN_SIZE = {
   schedule: { width: 240, height: 240 },
   month: { width: 260, height: 300 },
   stats: { width: 240, height: 220 },
+  list: { width: 240, height: 180 },
+  heatmap: { width: 260, height: 160 },
+  triage: { width: 240, height: 180 },
+  breakdown: { width: 240, height: 200 },
 };
 const REATTACH_MS = 5000;
 const RECREATE_MS = 1500;

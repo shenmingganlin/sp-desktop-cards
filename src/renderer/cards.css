@@ -131,3 +131,65 @@
 .stats-col.today .stats-day { color: var(--accent); font-weight: 600; }
 .stats-total { padding: 6px 12px 8px; font-size: 11px; color: var(--dim); }
 .stats-empty { padding: 6px 12px 10px; font-size: 12px; color: var(--mute); }
+
+/* ── 清单 ── */
+/* 用今日卡片的行样式，只补一处：过期的那行标题压暗一点，别和今天的混在一起 */
+#body .row.overdue .title { color: var(--danger); }
+
+/* ── 热力图 ── */
+/* 格子按卡片高度和宽度一起算：容器定高，每列等宽、每格等高，拉大拉小都不会露出空档 */
+.heat {
+  display: flex;
+  gap: 5px;
+  height: calc(100% - 46px);
+  min-height: 76px;
+  padding: 6px 10px 0;
+  box-sizing: border-box;
+}
+.heat-weekdays { display: flex; flex-direction: column; gap: 2px; width: 12px; flex: none; }
+.heat-weekdays span { flex: 1; font-size: 9px; line-height: 1; color: var(--mute); }
+.heat-grid { flex: 1; display: flex; gap: 2px; min-width: 0; }
+.heat-col { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.heat-month { height: 11px; font-size: 9px; line-height: 11px; color: var(--mute); white-space: nowrap; overflow: hidden; }
+.heat-cells { flex: 1; display: flex; flex-direction: column; gap: 2px; min-height: 0; }
+/* 格子做成正方形：宽度封顶，太宽的卡片不会把格子拉成长条 */
+.heat-cell {
+  display: block;
+  flex: 1;
+  min-height: 0;
+  max-width: 22px;
+  border-radius: 2px;
+  background: var(--line);
+  opacity: 0.5;
+}
+.heat-cell.lv1 { background: var(--focus); opacity: 0.25; }
+.heat-cell.lv2 { background: var(--focus); opacity: 0.45; }
+.heat-cell.lv3 { background: var(--focus); opacity: 0.7; }
+.heat-cell.lv4 { background: var(--focus); opacity: 1; }
+.heat-cell.today { box-shadow: inset 0 0 0 1px var(--accent); }
+.heat-cell.out { opacity: 0.12; }
+.heat-cell:hover { outline: 1px solid var(--accent); outline-offset: 1px; }
+.heat-total { display: flex; justify-content: space-between; gap: 8px; padding: 6px 12px 8px; font-size: 11px; }
+.heat-total .dim { color: var(--dim); }
+
+/* ── 待整理 ── */
+.triage-row { align-items: center; }
+.triage-row .text { flex: 1; min-width: 0; }
+.triage-row .meta { flex: none; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.triage-row .link { flex: none; opacity: 0; }
+.triage-row:hover .link { opacity: 1; }
+.triage-row .play { flex: none; }
+
+/* ── 时间去向 ── */
+.bd { padding: 4px 12px 0; }
+.bd-row { padding: 5px 0 2px; }
+.bd-head { display: flex; align-items: baseline; gap: 8px; }
+.bd-title { flex: 1; min-width: 0; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bd-ms { flex: none; font-size: 11px; color: var(--dim); font-variant-numeric: tabular-nums; }
+/* 条子按百分比铺满整行：卡片拉宽时也跟着变宽，一眼看出谁多谁少 */
+.bd-track { height: 5px; margin-top: 3px; border-radius: var(--radius-sm); background: var(--bg-bar); overflow: hidden; }
+.bd-fill { display: block; height: 100%; border-radius: var(--radius-sm); background: var(--accent); opacity: 0.85; }
+.bd-row.other .bd-fill { background: var(--line-strong); }
+.bd-row.other .bd-title { color: var(--dim); }
+.bd-row:hover .bd-fill { opacity: 1; }
+.bd-note { padding: 6px 12px 8px; font-size: 10px; line-height: 1.45; color: var(--mute); }
