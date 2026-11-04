@@ -32,6 +32,13 @@
           <span class="hint" id="mode-hint">嵌入桌面：卡片贴在桌面图标那一层，按 Win+D 也不会被收起，其他窗口会盖住它。</span>
         </label>
         <label class="field"><span>锁定位置和大小</span><input type="checkbox" data-key="locked" /></label>
+        <div class="field">
+          <span>不挡点击</span>
+          <input type="checkbox" data-key="clickThrough" />
+          <button class="btn inline" id="hotkey-button" type="button">设置快捷键…</button>
+          <span id="hotkey-current"></span>
+          <span class="hint">打开后鼠标落在卡片上会穿透到下面：置顶时点到别的程序，嵌入桌面时点到桌面图标。随时按快捷键切换，桌面下方会浮一条提示。</span>
+        </div>
         <label class="field"><span>不透明度</span><input type="range" min="30" max="100" step="5" data-key="opacity" data-kind="pct" /><output id="opacity-out"></output></label>
         <label class="field">
           <span>开机启动</span><input type="checkbox" data-key="openAtLogin" />

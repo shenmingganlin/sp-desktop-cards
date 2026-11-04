@@ -52,6 +52,9 @@ output { width: 36px; text-align: right; color: var(--dim); font-size: 12px; }
 #conn { margin: 4px 0 8px; }
 #conn.ok { color: var(--ok); }
 #conn.warn { color: var(--warn); }
+/* 快捷键注册不上时把原因标出来 */
+#hotkey-current { font-size: 11px; color: var(--dim); }
+#hotkey-current.warn { color: var(--warn); }
 
 #toast {
   position: fixed;

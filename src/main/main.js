@@ -1,6 +1,6 @@
 // main.js — 主进程：卡片窗口、托盘、设置窗口、番茄钟、和 SP 的通信。
 
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, powerMonitor, safeStorage, shell, Tray } from "electron";
+import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, nativeImage, nativeTheme, Notification, powerMonitor, safeStorage, screen, shell, Tray } from "electron";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -10,6 +10,7 @@ import { addDays, addMonths, buildMonth, buildPlanner, buildSchedule } from "./c
 import { CARD_TITLE, createCards } from "./cards.js";
 import * as desktop from "./desktop.js";
 import { buildHeatmap } from "./heatmap.js";
+import * as hotkey from "./hotkey.js";
 import { buildList, listSources } from "./list.js";
 import { buildView, isDay, localDay, resolveToday } from "./model.js";
 import * as pomo from "./pomodoro.js";
@@ -51,6 +52,12 @@ let cards;
 let tray = null;
 let settingsWin = null;
 let appearanceWin = null;
+let hotkeyWin = null;
+let toastWin = null;
+let toastTimer = null;
+let toastPayload = null;
+let hotkeyRegistered = ""; // 当前注册成功的 accelerator，空表示没注册上
+let hotkeyNotice = ""; // 注册不上时的原因，显示在设置里
 let raw = null; // SP 最近一次的原始数据
 let lastError = null;
 let autoToken = "";
@@ -75,11 +82,155 @@ function applyTheme() {
   const color = theme.backgroundOf(t.theme);
   nativeTheme.themeSource = t.theme === "hana" ? "light" : "dark";
   cards?.setBackground(color);
-  for (const win of [settingsWin, appearanceWin, tourWin, updateWin]) {
+  for (const win of [settingsWin, appearanceWin, hotkeyWin, tourWin, updateWin]) {
     if (!win || win.isDestroyed()) continue;
     win.setBackgroundColor(color);
     win.webContents.send("event", { type: "theme", theme: t.theme });
   }
+}
+
+// ── 不挡点击 ──
+// 开关在设置里（clickThrough），切换有三个入口：全局快捷键、托盘菜单、卡片 ⋯ 菜单。
+// 桌面模式下开了之后卡片就点不到了，所以后两个入口必须一直在，是主要退路。
+
+/** 切换并保存。on 省略就取反。 */
+function setClickThrough(on) {
+  const next = typeof on === "boolean" ? on : !settings.get().clickThrough;
+  saveSettings({ clickThrough: next });
+  showToast(next ? "不挡点击已开启" : "不挡点击已关闭", next);
+  return next;
+}
+
+/**
+ * 桌面上浮一条小提示，过一会儿自己消失。
+ * 窗口透明、不接鼠标、不抢焦点，所以就算正好压在别的东西上也不碍事。
+ */
+function showToast(text, on, ms = 1600) {
+  if (SMOKE) return; // 自检时截图会被它挡住
+  const payload = { text, on: !!on, ms, theme: currentTheme().theme };
+  toastPayload = payload;
+  const width = 360;
+  const height = 64;
+  // 光标在哪块屏就浮在哪块屏的底部中间
+  const area = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea;
+  const bounds = {
+    x: Math.round(area.x + (area.width - width) / 2),
+    y: Math.round(area.y + area.height - height - 48),
+    width,
+    height,
+  };
+  if (!toastWin || toastWin.isDestroyed()) {
+    toastWin = new BrowserWindow({
+      ...bounds,
+      frame: false,
+      transparent: true,
+      resizable: false,
+      movable: false,
+      minimizable: false,
+      maximizable: false,
+      fullscreenable: false,
+      skipTaskbar: true,
+      show: false,
+      focusable: false, // 不抢焦点：按快捷键时用户可能正在别的程序里打字
+      hasShadow: false,
+      alwaysOnTop: true,
+      backgroundColor: "#00000000",
+      title: "SP 桌面卡片 · 提示",
+      webPreferences: { preload, contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: false },
+    });
+    toastWin.setMenu(null);
+    // 提示条自己也不挡点击
+    toastWin.setIgnoreMouseEvents(true);
+    toastWin.setAlwaysOnTop(true, "screen-saver");
+    toastWin.webContents.on("will-navigate", (e) => e.preventDefault());
+    toastWin.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+    toastWin.once("ready-to-show", () => {
+      if (!toastWin || toastWin.isDestroyed()) return;
+      toastWin.showInactive();
+      toastWin.webContents.send("event", { type: "toast", ...toastPayload });
+    });
+    toastWin.on("closed", () => (toastWin = null));
+    toastWin.loadFile(path.join(renderer, "toast.html"), { query: { theme: currentTheme().theme } });
+  } else {
+    toastWin.setBounds(bounds);
+    toastWin.webContents.send("event", { type: "toast", ...payload });
+    toastWin.showInactive();
+  }
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => {
+    toastPayload = null;
+    if (toastWin && !toastWin.isDestroyed()) toastWin.hide();
+  }, ms);
+}
+
+/**
+ * 按设置注册全局快捷键。注册不上（被别的程序占了）返回 false，并把原因留在返回值里。
+ * 每次改设置都要先注销旧的，否则旧组合会一直占着。
+ */
+function syncHotkey() {
+  const accel = hotkey.acceleratorOf(settings.get().clickThroughKey);
+  if (hotkeyRegistered === accel) return { ok: true, accelerator: accel };
+  if (hotkeyRegistered) {
+    globalShortcut.unregister(hotkeyRegistered);
+    hotkeyRegistered = "";
+  }
+  if (!accel) return { ok: false, accelerator: "", message: "快捷键不完整。" };
+  let ok = false;
+  try {
+    ok = globalShortcut.register(accel, () => setClickThrough());
+  } catch {
+    ok = false;
+  }
+  if (ok) hotkeyRegistered = accel;
+  return { ok, accelerator: accel, message: ok ? "" : `${hotkey.keyText(settings.get().clickThroughKey)} 被别的程序占用了，换一个组合试试。` };
+}
+
+/**
+ * 启动时注册不上（默认组合被别的程序占了）要说一声，不然用户按了没反应也不知道为什么。
+ * 不弹模态框：只在设置窗口里标出来，加上托盘菜单里那一项照常能用。
+ */
+function announceHotkey() {
+  const result = syncHotkey();
+  if (!result.ok && result.message) {
+    lastError = null; // 这不是 SP 的问题，别混进连接错误里
+    hotkeyNotice = result.message;
+  }
+  return result;
+}
+
+/** 改快捷键：先试注册，成了才存。失败了原来的组合不动。 */
+function setClickThroughKey(payload) {
+  const combo = hotkey.normalizeKey(payload);
+  if (!combo) return { ok: false, message: "至少选一个修饰键和一个普通键。" };
+  const beforeAccel = hotkeyRegistered;
+  // 先注销旧的再试新的：不注销的话，试一个已经被自己占着的组合会误判成被占用
+  if (hotkeyRegistered) {
+    globalShortcut.unregister(hotkeyRegistered);
+    hotkeyRegistered = "";
+  }
+  let ok = false;
+  const accel = hotkey.acceleratorOf(combo);
+  try {
+    ok = globalShortcut.register(accel, () => setClickThrough());
+  } catch {
+    ok = false;
+  }
+  if (!ok) {
+    // 回滚：把原来的组合重新注册回去
+    if (beforeAccel) {
+      try {
+        if (globalShortcut.register(beforeAccel, () => setClickThrough())) hotkeyRegistered = beforeAccel;
+      } catch {
+        // 连原来的都注册不回去（比如被别的程序抢了），那就只能空着
+      }
+    }
+    return { ok: false, message: `${hotkey.keyText(combo)} 被别的程序占用了，换一个组合试试。` };
+  }
+  hotkeyRegistered = accel;
+  settings.update({ clickThroughKey: combo });
+  rebuildTrayMenu();
+  pushState();
+  return OK;
 }
 
 const currentDay = () => {
@@ -187,6 +338,10 @@ function publicSettings() {
     canEncrypt,
     desktopAvailable: desktop.available(),
     effectiveMode: cards?.effectiveMode(),
+    // 快捷键的显示文本在这里算好，设置窗口不重复一份键位表
+    clickThroughKeyText: hotkey.keyText(settings.get().clickThroughKey),
+    hotkeyActive: !!hotkeyRegistered,
+    hotkeyNotice,
   };
 }
 
@@ -359,6 +514,8 @@ function sharedMenu() {
       submenu: modes.map((m) => ({ label: MODE_LABEL[m], type: "radio", checked: cards.effectiveMode() === m, click: () => saveSettings({ mode: m }) })),
     },
     { label: "锁定位置", type: "checkbox", checked: s.locked, click: (i) => saveSettings({ locked: i.checked }) },
+    // 桌面模式下开了穿透就点不到卡片了，托盘和快捷键是主要退路，所以这里必须一直有
+    { label: "不挡点击", type: "checkbox", checked: s.clickThrough, accelerator: hotkey.acceleratorOf(s.clickThroughKey) || undefined, click: (i) => setClickThrough(i.checked) },
     { label: "重新排列", click: () => cards.resetLayout() },
     { type: "separator" },
     { label: "打开 Super Productivity", click: openSp },
@@ -471,6 +628,37 @@ function openAppearance() {
   appearanceWin.once("ready-to-show", () => appearanceWin.show());
   appearanceWin.on("closed", () => (appearanceWin = null));
   appearanceWin.loadFile(path.join(renderer, "appearance.html"), { query: { theme: currentTheme().theme } });
+}
+
+// ── 快捷键录制：做成卡片样子的一个小窗，点键盘选组合 ──
+function openHotkey() {
+  if (hotkeyWin && !hotkeyWin.isDestroyed()) {
+    hotkeyWin.show();
+    hotkeyWin.focus();
+    return;
+  }
+  hotkeyWin = new BrowserWindow({
+    width: 460,
+    height: 420,
+    minWidth: 380,
+    minHeight: 340,
+    frame: false,
+    resizable: true,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    show: false,
+    backgroundColor: theme.backgroundOf(currentTheme().theme),
+    title: "SP 桌面卡片 · 快捷键",
+    icon,
+    webPreferences: { preload, contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: false },
+  });
+  hotkeyWin.setMenu(null);
+  hotkeyWin.webContents.on("will-navigate", (e) => e.preventDefault());
+  hotkeyWin.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  hotkeyWin.once("ready-to-show", () => hotkeyWin?.show());
+  hotkeyWin.on("closed", () => (hotkeyWin = null));
+  hotkeyWin.loadFile(path.join(renderer, "hotkey.html"), { query: { theme: currentTheme().theme } });
 }
 
 // ── 使用教程：第一次启动（含从旧版升级）时弹一次，之后从菜单打开 ──
@@ -697,6 +885,7 @@ function saveSettings(patch) {
   if (s.theme !== before.theme) applyTheme();
   if (s.mode !== before.mode) cards.applyMode();
   if (s.locked !== before.locked) cards.setLocked(s.locked);
+  if (s.clickThrough !== before.clickThrough) cards.setClickThrough(s.clickThrough);
   if (s.opacity !== before.opacity) cards.setOpacity(s.opacity);
   if (s.openAtLogin !== before.openAtLogin && app.isPackaged) app.setLoginItemSettings({ openAtLogin: s.openAtLogin });
   if (s.pomodoro.resume !== before.pomodoro.resume) savePomo();
@@ -709,7 +898,8 @@ function saveSettings(patch) {
 const isId = (v) => typeof v === "string" && v.length > 0 && v.length < 200;
 // 设置窗口能改的字段；卡片位置、令牌、番茄统计走各自的通道
 const EDITABLE = ["mode", "theme", "locked", "opacity", "openAtLogin", "upcomingMinutes", "dayStartHour", "showDone", "plannerDays",
-  "scheduleStartHour", "scheduleEndHour", "quickAddProjectId", "pomodoro", "autoUpdate", "breakdownBy", "heatmapWeeks", "listSource"];
+  "scheduleStartHour", "scheduleEndHour", "quickAddProjectId", "pomodoro", "autoUpdate", "breakdownBy", "heatmapWeeks", "listSource",
+  "clickThrough"];
 const pick = (obj, keys) => Object.fromEntries(keys.filter((k) => Object.hasOwn(obj, k)).map((k) => [k, obj[k]]));
 
 async function runTaskAction(fn) {
@@ -757,6 +947,9 @@ const cardActions = {
   toggleCollapsed: (_p, type) => (cards.setCollapsed(type, !settings.get().cards[type].collapsed), pushState(), OK),
   hide: (_p, type) => (cards.setVisible(type, false), OK),
   focusInput: (_p, type) => (cards.requestFocus(type), OK),
+  // 卡片 ⋯ 菜单里的「不挡点击」和托盘里的是同一项。注意：开了之后这张卡片就点不到了，
+  // 关回去要走托盘或快捷键——所以托盘和快捷键这两个入口不能少。
+  toggleClickThrough: () => (setClickThrough(), OK),
   setShowDone: ({ value }) => (typeof value === "boolean" ? (saveSettings({ showDone: value }), OK) : null),
   navigate: ({ key, offset }) => (["schedule", "month"].includes(key) && [-1, 0, 1].includes(offset) ? navigate(key, offset) : null),
   selectDay: ({ day }) => {
@@ -782,6 +975,7 @@ const settingsActions = {
   resetLayout: () => (cards.resetLayout(), OK),
   openTour: () => (openTour(), OK),
   openAppearance: () => (openAppearance(), OK),
+  openHotkey: () => (openHotkey(), OK),
   checkUpdate: () => (void checkUpdate({ manual: true }), OK),
   setToken: ({ token }) => setManualToken(token),
   refresh: () => (poller.kick(), OK),
@@ -791,6 +985,20 @@ const appearanceActions = {
   themeCatalog: () => ({ ok: true, data: { skins: theme.SKINS, current: currentTheme().theme, source: currentTheme().source } }),
   setTheme: ({ id }) => (theme.isSkin(id) ? (saveSettings({ theme: id }), OK) : null),
   closeAppearance: () => (appearanceWin?.close(), OK),
+};
+
+const hotkeyActions = {
+  hotkeyCatalog: () => ({
+    ok: true,
+    data: { modifiers: hotkey.MODIFIERS, keys: hotkey.KEYS, current: settings.get().clickThroughKey },
+  }),
+  setClickThroughKey: (payload) => setClickThroughKey(payload),
+  closeHotkey: () => (hotkeyWin?.close(), OK),
+};
+
+const toastActions = {
+  // 页面起来晚了、错过第一条推送时自己来问一次
+  toastReady: () => (toastPayload ? toastWin?.webContents.send("event", { type: "toast", ...toastPayload }) : null) || OK,
 };
 
 const tourActions = {
@@ -812,7 +1020,11 @@ ipcMain.handle("action", async (event, name, payload) => {
       ? settingsActions
       : from(appearanceWin, event.sender)
         ? appearanceActions
-        : from(tourWin, event.sender)
+        : from(hotkeyWin, event.sender)
+          ? hotkeyActions
+          : from(toastWin, event.sender)
+            ? toastActions
+            : from(tourWin, event.sender)
           ? tourActions
           : from(updateWin, event.sender)
             ? updateActions
@@ -871,6 +1083,8 @@ app.on("before-quit", () => {
   cards?.quit();
   settings?.flush();
   themeStopWatcher?.();
+  globalShortcut.unregisterAll();
+  clearTimeout(toastTimer);
 });
 app.on("window-all-closed", () => {});
 
@@ -915,6 +1129,9 @@ app.whenReady().then(async () => {
   });
   cards.start();
   applyTheme();
+  // 不挡点击：按存下来的状态设一次，再注册全局快捷键
+  cards.setClickThrough(initial.clickThrough);
+  announceHotkey();
   // 每 2 秒看一眼外部主题文件；文件变了就换皮肤，删掉就回到手选的
   themeStopWatcher = theme.watchExternal(themeFile(), (value) => {
     externalTheme = value;

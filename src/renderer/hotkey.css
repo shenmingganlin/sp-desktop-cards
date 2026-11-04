@@ -1,0 +1,104 @@
+/* hotkey.css — 快捷键录制窗口。做成卡片的样子：无边框、一条能拖的顶栏、跟着皮肤变色。 */
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font: 13px/1.5 var(--font-ui);
+  user-select: none;
+  overflow: hidden;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  border: var(--hairline) solid var(--line);
+}
+
+/* ── 顶栏：和卡片一样能按住拖 ── */
+#head {
+  display: flex;
+  align-items: center;
+  height: 32px;
+  min-height: 32px;
+  padding: 0 12px;
+  background: var(--bg-2);
+  cursor: default;
+}
+#title { font-weight: 600; font-size: 12px; }
+
+main {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px 14px 4px;
+}
+.lede { margin: 0 0 10px; color: var(--dim); font-size: 11px; line-height: 1.5; }
+
+/* ── 键盘 ── */
+.keyboard { display: flex; flex-direction: column; gap: 4px; }
+.kb-row { display: flex; gap: 4px; }
+.kb-row.fn { margin-bottom: 4px; }
+
+.key {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  padding: 0 2px;
+  border: var(--hairline) solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--bg-2);
+  color: var(--text);
+  font: 11px/1 var(--font-ui);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.key:hover { border-color: var(--line-strong); background: var(--bg-hover); }
+.key.mod { flex: 1.6; }
+.key.wide { flex: 2.2; }
+.key.on {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--ink-on-accent);
+}
+.key.on:hover { background: var(--accent-hover); }
+/* 只能选一个普通键：已经选了一个时，其他的压暗提示 */
+.key.dim { opacity: 0.45; }
+
+/* ── 当前组合 ── */
+.combo { display: flex; align-items: baseline; gap: 8px; margin-top: 12px; }
+.combo-label { color: var(--dim); font-size: 11px; }
+.combo-text {
+  font: 600 14px/1.3 "Cascadia Mono", Consolas, monospace;
+  color: var(--accent);
+  word-break: break-all;
+}
+.combo-text.empty { color: var(--mute); font-weight: 400; font-family: var(--font-ui); }
+
+.error { margin: 8px 0 0; color: var(--danger); font-size: 11px; line-height: 1.5; }
+
+footer {
+  flex: none;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 14px;
+  border-top: var(--hairline) solid var(--line);
+}
+.btn {
+  padding: 4px 14px;
+  border: var(--hairline) solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-2);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.btn:hover { background: var(--bg-hover); }
+.btn.primary { border-color: var(--accent); background: var(--accent); color: var(--ink-on-accent); }
+.btn.primary:hover { background: var(--accent-hover); }
+.btn:disabled { opacity: 0.45; cursor: default; }
+.btn.primary:disabled:hover { background: var(--accent); }

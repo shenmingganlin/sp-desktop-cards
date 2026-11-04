@@ -263,6 +263,9 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
     applyLimits(type);
     place(type, bounds);
     applyMode(type);
+    // 不挡点击：只加 WS_EX_TRANSPARENT，不动 owner，也不动 WS_EX_NOACTIVATE，
+    // 所以桌面层的 Z 序逻辑和「不可激活」都不受影响（0.7.1 实测）。
+    w.setIgnoreMouseEvents(s.clickThrough);
 
     w.webContents.on("will-navigate", (e) => e.preventDefault());
     w.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
@@ -448,6 +451,8 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
       }
       w.showInactive();
       applyMode(type);
+      // 隐藏再显示会把扩展样式重置掉，穿透状态要重新设一遍
+      w.setIgnoreMouseEvents(!!settings.get().clickThrough);
     }
     onChange();
   }
@@ -568,6 +573,14 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
     },
     setOpacity(opacity) {
       for (const [, w] of alive()) w.setOpacity(opacity);
+    },
+    /**
+     * 不挡点击：鼠标落在卡片上时穿透到下面去。
+     * 三种显示方式都生效——置顶时点到下面的程序，嵌入桌面时点到桌面图标和壁纸。
+     * 普通窗口本来就在别的窗口下面，开了也看不出差别，但状态照样保存。
+     */
+    setClickThrough(on) {
+      for (const [, w] of alive()) w.setIgnoreMouseEvents(!!on);
     },
     /** 换皮肤时同步窗口底色，免得改大小的过程中露出旧颜色。 */
     setBackground(color) {

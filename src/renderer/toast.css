@@ -1,0 +1,58 @@
+/* toast.css — 桌面上浮一下就走的小提示（比如「不挡点击已开启」）。
+   窗口本身是透明的、不接鼠标的，所以这里只画中间那块。颜色全部来自 theme.css。 */
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+  user-select: none;
+}
+
+body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font: 13px/1.4 var(--font-ui);
+  color: var(--text);
+}
+
+#note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  padding: 9px 18px;
+  border: var(--hairline) solid var(--line-strong);
+  border-radius: var(--radius-lg);
+  background: var(--bg-2);
+  box-shadow: var(--shadow-popup);
+  white-space: nowrap;
+  /* 淡入淡出：窗口出现时别硬邦邦地跳出来 */
+  animation: note-in 0.16s ease-out;
+}
+
+#mark {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--mute);
+}
+#note.on #mark { background: var(--ok); }
+#note.off #mark { background: var(--mute); }
+
+#text {
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+
+@keyframes note-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* 系统设置了减少动画就别动 */
+@media (prefers-reduced-motion: reduce) {
+  #note { animation: none; }
+}

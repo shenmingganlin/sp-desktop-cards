@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'" />
+    <title>SP 桌面卡片 · 快捷键</title>
+    <link rel="stylesheet" href="theme.css" />
+    <script src="theme.js"></script>
+    <link rel="stylesheet" href="hotkey.css" />
+  </head>
+  <body>
+    <!-- 做成卡片的样子：一条能拖的顶栏，底下一块内容 -->
+    <header id="head">
+      <span id="title">不挡点击的快捷键</span>
+    </header>
+    <main>
+      <p class="lede">左键点一个键选中，右键点已选的键取消。Ctrl / Alt / Shift / Win 可以多选，普通键只能选一个。</p>
+      <div id="keyboard" class="keyboard"></div>
+      <div class="combo">
+        <span class="combo-label">现在是</span>
+        <span id="combo" class="combo-text"></span>
+      </div>
+      <p id="error" class="error" hidden></p>
+    </main>
+    <footer>
+      <button class="btn" id="cancel" type="button">取消</button>
+      <button class="btn primary" id="ok" type="button">确定</button>
+    </footer>
+    <script src="hotkey.js"></script>
+  </body>
+</html>

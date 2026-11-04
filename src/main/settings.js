@@ -6,6 +6,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { defaultKey, normalizeKey } from "./hotkey.js";
 import { DEFAULT_POMODORO } from "./pomodoro.js";
 import { normalizeSkin } from "./theme.js";
 
@@ -65,6 +66,8 @@ export const DEFAULTS = Object.freeze({
   listSource: { kind: "project", id: "" }, // 清单卡片看哪个项目/标签；id 为空表示用第一个
   breakdownBy: "tag", // 时间去向卡片按什么分摊：tag 标签 / project 项目
   heatmapWeeks: 13, // 热力图卡片显示几周
+  clickThrough: false, // 不挡点击：鼠标落在卡片上时穿透到下面（默认关）
+  clickThroughKey: defaultKey(), // 切换「不挡点击」的全局快捷键
 });
 
 const clampNumber = (v, min, max, fallback) =>
@@ -131,9 +134,12 @@ export function sanitize(input, base = DEFAULTS) {
   if (MODES.includes(input.mode)) s.mode = input.mode;
   const pickedTheme = normalizeSkin(input.theme);
   if (pickedTheme) s.theme = pickedTheme;
-  for (const key of ["locked", "openAtLogin", "showDone", "tourDone", "autoUpdate"]) {
+  for (const key of ["locked", "openAtLogin", "showDone", "tourDone", "autoUpdate", "clickThrough"]) {
     if (typeof input[key] === "boolean") s[key] = input[key];
   }
+  // 快捷键不合法就留着原来的：宁可不动，也别把用户设好的组合弄丢
+  const combo = normalizeKey(input.clickThroughKey);
+  if (combo) s.clickThroughKey = combo;
   s.opacity = clampNumber(input.opacity, 0.3, 1, s.opacity);
   s.upcomingMinutes = clampInt(input.upcomingMinutes, 0, 240, s.upcomingMinutes);
   s.dayStartHour = clampInt(input.dayStartHour, 0, 23, s.dayStartHour);

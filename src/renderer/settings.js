@@ -69,6 +69,7 @@
   }
 
   $("appearance-button").addEventListener("click", () => act("openAppearance"));
+  $("hotkey-button").addEventListener("click", () => act("openHotkey"));
   $("reset-layout").addEventListener("click", () => act("resetLayout"));
   $("chime-test").addEventListener("click", (e) => {
     e.preventDefault(); // 按钮在 label 里，别顺带切换旁边的勾选框
@@ -120,6 +121,10 @@
       writeValue(input, getPath(s, input.dataset.key));
     }
     $("opacity-out").textContent = `${Math.round(s.opacity * 100)}%`;
+    // 快捷键是主进程算好的显示文本，设置窗口不自己拼
+    const hk = $("hotkey-current");
+    hk.textContent = s.hotkeyNotice ? `${s.clickThroughKeyText}（${s.hotkeyNotice}）` : s.clickThroughKeyText || "";
+    hk.className = s.hotkeyNotice ? "warn" : "";
     const desktopOption = document.querySelector('[data-key="mode"] option[value="desktop"]');
     desktopOption.disabled = !s.desktopAvailable;
     $("mode-hint").textContent = s.desktopAvailable

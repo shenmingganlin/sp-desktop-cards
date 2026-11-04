@@ -28,6 +28,7 @@
   - 嵌入桌面：贴在桌面图标那一层，按 Win+D 显示桌面时卡片还在；平时被其他窗口盖住。
     桌面模式下卡片全程不抢激活：点桌面、开卡片菜单、打字，卡片本身都留在那一层不动（菜单自己浮在上面）。
 - **锁定位置**：防止误拖。
+- **不挡点击**：打开后鼠标落在卡片上会穿透到下面——置顶时点到卡片底下的程序，嵌入桌面时点到桌面图标和壁纸。默认关。按快捷键（默认 `Ctrl + Alt + J`）随时切换，桌面下方会浮一条提示告诉你开还是关。快捷键可以在设置 → 显示里点「设置快捷键…」改：弹出的窗口画着一个键盘，左键点选、右键取消，Ctrl / Alt / Shift / Win 可以多选，普通键只能选一个。组合被别的程序占用时会当场提示，原来的不动。三个入口都能切：快捷键、托盘菜单、卡片 ⋯ 菜单。
 - 托盘图标：单击显示/隐藏全部卡片，右键有完整菜单。
 
 ## 皮肤
@@ -108,6 +109,9 @@ npm run smoke           # 用假 SP 启动真实窗口，每张卡片截图，�
 npm run ui-check        # 用 Playwright 点一遍：勾选、计时、番茄钟、新建、翻页、折叠、拖动、设置、断线
 npm run menu-check      # 嵌入桌面模式：菜单/点别处/连点/Win+D/外力抬起，卡片都留在桌面层不动
 npm run desktop-check   # 嵌入桌面模式真机检查（会按 Win+D、移动鼠标，运行时别碰电脑）
+npm run destroy-check   # 窗口被系统销毁时主进程不崩，卡片能自己重建
+npm run clickthrough-check # 不挡点击：真的穿透到下面，子窗口显示回来也不影响
+npm run hotkey-check    # 不挡点击的整条链路：快捷键、切换、提示条、录制窗、占用冲突
 npm run update-check    # 检查更新：手动那条（发现→下载→问要不要装）+ 启动后自动弹窗那条（真弹原生对话框）
 npm run dist            # 打 Windows 安装包和 zip，输出到 dist/
 ```
@@ -125,6 +129,8 @@ npm run dist            # 打 Windows 安装包和 zip，输出到 dist/
 - `src/main/desktop.js`：嵌入桌面（用 koffi 调 user32、comctl32）
 - `src/main/pomodoro.js`：番茄钟状态机（纯函数）
 - `src/main/sp-client.js`、`poller.js`：REST 客户端和轮询。SP 会拒绝带网页 Origin 的请求，所以请求都由主进程发出
+- `src/main/hotkey.js`：快捷键的规范化、校验、转 Electron accelerator（纯函数）
+- `src/main/win.js`：窗口判活（原生窗口被系统销毁时 `isDestroyed()` 还来不及置上）
 - `src/main/main.js`：托盘、菜单、设置窗口，把以上串起来
 - `src/renderer/`：卡片页面（`card.js` 共用部分，`cards/` 每张卡片一个文件）、设置窗口、使用教程（`tour.*`）、提示音（`chime.js`）
 - `test/fake-sp.js`：照 SP 19.3 行为写的假服务，测试和截图都用它
