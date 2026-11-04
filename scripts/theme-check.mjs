@@ -98,6 +98,28 @@ try {
     await appearance.screenshot({ path: path.join(out, "appearance.png") });
   });
 
+  // 每张预览卡靠自己的 data-theme 拿颜色。「深夜」以前只写在 :root 上，没有 [data-theme="dark"] 规则，
+  // 于是它跟着当前皮肤一起变（当前是暖纸时，深夜那张预览也是米纸色）。
+  const previewOf = (id) =>
+    appearance.evaluate((skin) => {
+      const el = document.querySelector(`.preview[data-theme="${skin}"]`);
+      const cs = getComputedStyle(el);
+      return { bg: cs.backgroundColor, color: cs.color, accent: cs.getPropertyValue("--accent").trim() };
+    }, id);
+  const DARK_PREVIEW = { bg: "rgb(31, 31, 31)", color: "rgb(232, 232, 232)", accent: "#ff4d8d" };
+
+  await check("深夜那张预览显示的是深夜，不跟着当前皮肤变", async () => {
+    assert.deepEqual(await previewOf("dark"), DARK_PREVIEW);
+    await appearance.locator('.skin[data-skin="coral"]').click();
+    await waitFor(async () => (await style()).theme === "coral");
+    assert.deepEqual(await previewOf("dark"), DARK_PREVIEW, "选了珊瑚之后深夜预览跟着变了");
+    assert.equal((await previewOf("coral")).bg, "rgb(253, 246, 236)", "珊瑚预览不是珊瑚的底色");
+    await appearance.locator('.skin[data-skin="warm-paper"]').click();
+    await waitFor(async () => (await style()).theme === "warm-paper");
+    assert.deepEqual(await previewOf("dark"), DARK_PREVIEW, "选了暖纸之后深夜预览跟着变了");
+    assert.equal((await previewOf("warm-paper")).bg, "rgb(248, 244, 237)", "暖纸预览不是暖纸的底色");
+  });
+
   await check("外观里选深夜，卡片不重载就变色", async () => {
     const before = page.url();
     await appearance.locator('.skin[data-skin="dark"]').click();

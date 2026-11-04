@@ -15,6 +15,7 @@
     "ui-check": "node scripts/ui-check.mjs",
     "menu-check": "node scripts/menu-check.mjs",
     "desktop-check": "node scripts/desktop-check.mjs",
+    "destroy-check": "node scripts/destroy-check.mjs",
     "update-check": "node scripts/update-check.mjs && node scripts/update-dialog-check.mjs",
     "icons": "python scripts/icons.py",
     "resize-check": "node scripts/resize-check.mjs",

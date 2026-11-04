@@ -11,6 +11,7 @@ import { defaultSpot, followResize, groupOf, isOnScreen, resizeRect, snapMove } 
 import { backgroundOf, readExternal, resolveSkin, skinOf, SKINS } from "../src/main/theme.js";
 import { artifactName, downloadFile, fetchLatest, isNewer, parseVersion, tagFromUrl } from "../src/main/update.js";
 import { adoptUserData } from "../src/main/usermigrate.js";
+import { windowAlive } from "../src/main/win.js";
 
 const MIN = 60_000;
 
@@ -254,6 +255,20 @@ test("设置：合并一张卡片、番茄钟按字段收敛", () => {
   const kept = sanitize({ pomodoroSession: { phase: "work", status: "running", endsAt: 1, durationMs: 2, taskId: "t", evil: 1 } });
   assert.ok(!("evil" in kept.pomodoroSession));
   assert.equal(sanitize({ pomodoroSession: null }, kept).pomodoroSession, null);
+});
+
+test("窗口判活：原生窗口已经没了也要算死，不能只信 isDestroyed()", () => {
+  // 正常窗口
+  assert.equal(windowAlive({ isDestroyed: () => false, isVisible: () => true }), true);
+  // JS 那边已经销毁
+  assert.equal(windowAlive({ isDestroyed: () => true, isVisible: () => true }), false);
+  // 关键情形：嵌入桌面时 Explorer 重启，原生窗口被系统销毁，closed 还没派发。
+  // isDestroyed() 还说活着，任何原生调用都抛 —— settle() 每 16ms 一次，这里必须判死。
+  assert.equal(windowAlive({ isDestroyed: () => false, isVisible: () => { throw new Error("Object has been destroyed"); } }), false);
+  // 空的和不像窗口的东西
+  assert.equal(windowAlive(null), false);
+  assert.equal(windowAlive(undefined), false);
+  assert.equal(windowAlive({}), false);
 });
 
 test("检查更新：版本号比较", () => {

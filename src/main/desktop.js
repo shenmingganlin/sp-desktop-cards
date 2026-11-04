@@ -13,6 +13,7 @@
 // 任何一次 SetWindowPos 都是改组内顺序而不是动一张卡。把判断收敛到一个地方，才不会互相打架。
 
 import { createRequire } from "node:module";
+import { windowAlive } from "./win.js";
 
 const require = createRequire(import.meta.url);
 let api = null;
@@ -91,7 +92,7 @@ function iconsHost() {
 /** 挂到桌面下面。返回是否挂好了；已经挂好时什么也不做（Explorer 重启后定时调一次即可重新挂）。 */
 export function attach(win) {
   const a = load();
-  if (!a || win.isDestroyed()) return false;
+  if (!a || !windowAlive(win)) return false;
   const host = iconsHost();
   if (!host) return false;
   const h = hwndOf(win);
@@ -101,7 +102,7 @@ export function attach(win) {
 
 export function detach(win) {
   const a = load();
-  if (!a || win.isDestroyed()) return;
+  if (!a || !windowAlive(win)) return;
   a.SetWindowLongPtrW(hwndOf(win), GWLP_HWNDPARENT, 0n);
 }
 
@@ -113,7 +114,7 @@ export function detach(win) {
  */
 export function toDesktopLayer(win) {
   const a = load();
-  if (!a || win.isDestroyed()) return;
+  if (!a || !windowAlive(win)) return;
   const shell = big(a.GetShellWindow());
   if (!shell) return;
   const h = hwndOf(win);
@@ -128,11 +129,11 @@ export function toDesktopLayer(win) {
  */
 export function atDesktopLayer(win, others = []) {
   const a = load();
-  if (!a || win.isDestroyed()) return false;
+  if (!a || !windowAlive(win)) return false;
   const host = iconsHost();
   if (!host) return false;
   const own = new Set([hwndOf(win)]);
-  for (const o of others) if (o && !o.isDestroyed()) own.add(hwndOf(o));
+  for (const o of others) if (windowAlive(o)) own.add(hwndOf(o));
   let cur = big(a.GetWindow(hwndOf(win), GW_HWNDNEXT));
   for (let i = 0; cur && i < 64; i += 1) {
     if (cur === host) return true;
@@ -153,7 +154,7 @@ const SW_SHOWNOACTIVATE = 4;
 /** 卡片里的子窗口被藏起来了就重新显示。调用方按需定时调用；窗口没显示时不动。 */
 export function keepClickable(win) {
   const a = load();
-  if (!a || win.isDestroyed() || !win.isVisible()) return false;
+  if (!a || !windowAlive(win) || !win.isVisible()) return false;
   const child = big(a.FindWindowExW(hwndOf(win), 0, "Chrome_RenderWidgetHostHWND", null));
   if (!child) return false;
   if (a.IsWindowVisible(child)) return true;

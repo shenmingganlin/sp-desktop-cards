@@ -9,6 +9,7 @@ import * as desktop from "./desktop.js";
 import { CARD_SIZE, CARD_TYPES } from "./settings.js";
 import { boundingBox, defaultSpot, followResize, groupOf, isOnScreen, resizeRect, snapMove } from "./snap.js";
 import { backgroundOf } from "./theme.js";
+import { windowAlive } from "./win.js";
 
 export const HEADER_HEIGHT = 34;
 export const CARD_TITLE = {
@@ -50,7 +51,11 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
   let settleTimer = null;
   let topHeld = false; // 弹原生对话框时临时取消置顶，别让卡片挡住对话框
 
-  const usable = (w) => w && !w.isDestroyed();
+  // 判活走 windowAlive：只看 isDestroyed() 会在「原生窗口已被系统销毁、closed 还没派发」
+  // 的那一小段空档里说还能用，随后任何原生调用都抛 "Object has been destroyed"。
+  // settle() 每 16ms 一次，空档必中，异常从定时器回调逃出来就是主进程崩溃弹窗。
+  // 嵌入桌面时 Explorer 重启会把挂在桌面下面的卡片窗口连带销毁，正是这条路径。
+  const usable = (w) => windowAlive(w);
   const alive = () => [...wins].filter(([, w]) => usable(w));
   const workAreas = () => screen.getAllDisplays().map((d) => d.workArea);
   /** 可见卡片的外框，exclude 除外。 */
@@ -164,6 +169,24 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
     settle();
   }
 
+  /**
+   * 定时器回调的兜底。这些回调每秒要跑几十次，窗口随时可能在系统那边消失；
+   * 异常从定时器里逃出去，Electron 就弹「A JavaScript error occurred in the main process」。
+   * 窗口消失是正常情况（Explorer 重启就会），不该惊动用户，下一轮自然就恢复了。
+   */
+  function guard(fn) {
+    return () => {
+      try {
+        fn();
+      } catch (error) {
+        // 这一轮跳过，下一轮重来。记一笔，destroy-check 靠它确认这条路径真的被测到了：
+        // 光看「没崩」不够，兜底的 guard 本身就能把异常吞掉，那样测不出判活有没有修好。
+        const log = globalThis.__spwGuardErrors;
+        if (Array.isArray(log)) log.push(String(error && error.message));
+      }
+    };
+  }
+
   function syncTimer() {
     clearInterval(reattachTimer);
     reattachTimer = null;
@@ -171,7 +194,7 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
     settleTimer = null;
     if (mode() !== "desktop") return;
     // Explorer 重启后桌面窗口会换，得重新挂上去；顺便校一次位置。
-    reattachTimer = setInterval(() => {
+    reattachTimer = setInterval(guard(() => {
       for (const [type, w] of alive()) {
         if (!w.isVisible() || attending.has(type)) continue;
         desktop.attach(w);
@@ -184,8 +207,8 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
         if (usable(w)) w.setFocusable(false);
       }
       settle();
-    }, REATTACH_MS);
-    settleTimer = setInterval(settle, SETTLE_MS);
+    }), REATTACH_MS);
+    settleTimer = setInterval(guard(settle), SETTLE_MS);
   }
 
   function syncInputTimer() {
@@ -194,10 +217,10 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
     if (!desktop.available()) return;
     // 嵌入桌面时卡片不可激活，Chromium 一旦把接鼠标的子窗口藏起来，左键按下就会被系统连带丢掉。
     // 这里定时看一眼，藏了就显示回来（不挂消息回调，所以不会影响别的东西）。别的模式窗口能激活，不用管。
-    inputTimer = setInterval(() => {
+    inputTimer = setInterval(guard(() => {
       if (mode() !== "desktop") return;
       for (const [, w] of alive()) desktop.keepClickable(w);
-    }, INPUT_CHECK_MS);
+    }), INPUT_CHECK_MS);
   }
 
   function initialBounds(type) {
@@ -310,7 +333,7 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
       box: boundingBox([...start.values()]),
       cursor: screen.getCursorScreenPoint(),
       moved: false,
-      timer: setInterval(dragTick, 16),
+      timer: setInterval(guard(dragTick), 16),
     };
   }
 
@@ -351,7 +374,7 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
     let e = String(edges ?? "").replace(/[^nsew]/g, "");
     if (settings.get().cards[type].collapsed) e = e.replace(/[ns]/g, ""); // 折叠时只有一条顶栏高，上下不给拉
     if (!e) return;
-    resizing = { type, edges: e, start: boundsOf(type), cursor: screen.getCursorScreenPoint(), timer: setInterval(resizeTick, 16) };
+    resizing = { type, edges: e, start: boundsOf(type), cursor: screen.getCursorScreenPoint(), timer: setInterval(guard(resizeTick), 16) };
   }
 
   function resizeTick() {
@@ -575,7 +598,13 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
     bounds: (type) => (usable(wins.get(type)) ? boundsOf(type) : null),
     send(type, channel, payload) {
       const w = wins.get(type);
-      if (usable(w) && !w.webContents.isLoading()) w.webContents.send(channel, payload);
+      if (!usable(w)) return;
+      // webContents 也可能跟着原生窗口一起没了，这里同样要兜住
+      try {
+        if (!w.webContents.isLoading()) w.webContents.send(channel, payload);
+      } catch {
+        // 窗口正在消失，这一帧的状态丢了没关系，重建后会再推一次
+      }
     },
   };
 }
