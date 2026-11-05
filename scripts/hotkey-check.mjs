@@ -213,6 +213,23 @@ try {
   }
   await recorder.locator("#keyboard .key").first().waitFor();
 
+  // 回归：录制窗是无边框的，以前顶栏拖动发的是卡片的 dragStart，主进程只认卡片窗口、
+  // 找不到就丢弃（hotkey.js 里也没有别的拖动兜底），结果窗口完全拖不动。
+  // 现在顶栏用 -webkit-app-region: drag 交给系统，这里验它真的标上了、窗口也允许移动。
+  await check("录制窗顶栏是系统的可拖动区，窗口没被禁move", async () => {
+    const style = await recorder.evaluate(() => getComputedStyle(document.getElementById("head")).getPropertyValue("-webkit-app-region"));
+    assert.equal(style.trim(), "drag", `顶栏没标成可拖动区（${style}）`);
+    const movable = await app.evaluate(({ BrowserWindow }) => {
+      const w = BrowserWindow.getAllWindows().find((x) => x.webContents.getURL().includes("hotkey.html"));
+      const before = w.getBounds();
+      w.setBounds({ x: before.x + 40, y: before.y + 30, width: before.width, height: before.height });
+      const moved = w.getBounds();
+      w.setBounds(before);
+      return { dx: moved.x - before.x, dy: moved.y - before.y };
+    });
+    assert.deepEqual(movable, { dx: 40, dy: 30 }, "窗口挪不动（movable 被关掉了？）");
+  });
+
   await check(`录制窗画出了键盘，当前组合显示为 ${KEY_TEXT}`, async () => {
     assert.equal(await recorder.locator("#combo").textContent(), KEY_TEXT);
     assert.equal(await recorder.locator('.key.on[data-key="ctrl"]').count(), 1, "Ctrl 没标成选中");

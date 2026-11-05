@@ -4,7 +4,7 @@
 //   timeSpentOnDay 按月记着每天用了多久，doneOn 是完成时的毫秒时间戳（老版本可能是 YYYY-MM-DD）。
 // 窗口以 SP 的「今天」为准往前推，最后一项就是今天。
 
-import { isDay, isTimestamp, localDay, pad2 } from "./model.js";
+import { dayStr, isDay, isTimestamp, localDay, parseDay } from "./model.js";
 
 /**
  * raw = { allTasks }；opts = { today, now, dayStartHour, days }。
@@ -12,12 +12,11 @@ import { isDay, isTimestamp, localDay, pad2 } from "./model.js";
  */
 export function buildStats(raw, { today, now = Date.now(), dayStartHour = 0, days = 7 } = {}) {
   const list = raw?.allTasks || [];
-  const [y, m, d] = String(today).split("-").map(Number);
+  const [y, m, d] = parseDay(String(today));
 
   const dayList = [];
   for (let i = days - 1; i >= 0; i -= 1) {
-    const date = new Date(y, m - 1, d - i);
-    const day = `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+    const day = dayStr(new Date(y, m - 1, d - i));
     dayList.push({ day, spent: 0, done: 0, isToday: i === 0 });
   }
   const byDay = new Map(dayList.map((slot) => [slot.day, slot]));

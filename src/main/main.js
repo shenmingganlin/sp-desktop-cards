@@ -80,7 +80,7 @@ function applyTheme() {
   if (!settings) return;
   const t = currentTheme();
   const color = theme.backgroundOf(t.theme);
-  nativeTheme.themeSource = t.theme === "hana" ? "light" : "dark";
+  nativeTheme.themeSource = theme.isLightSkin(t.theme) ? "light" : "dark";
   cards?.setBackground(color);
   for (const win of [settingsWin, appearanceWin, hotkeyWin, tourWin, updateWin]) {
     if (!win || win.isDestroyed()) continue;

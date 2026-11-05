@@ -8,7 +8,7 @@ import * as pomo from "../src/main/pomodoro.js";
 import { INBOX, taskFields } from "../src/main/quickadd.js";
 import { CARD_SIZE, DEFAULTS, GAP, migrate, sanitize } from "../src/main/settings.js";
 import { defaultSpot, followResize, groupOf, isOnScreen, resizeRect, snapMove } from "../src/main/snap.js";
-import { backgroundOf, readExternal, resolveSkin, skinOf, SKINS } from "../src/main/theme.js";
+import { backgroundOf, isLightSkin, readExternal, resolveSkin, skinOf, SKINS } from "../src/main/theme.js";
 import { artifactName, downloadFile, fetchLatest, isNewer, parseVersion, tagFromUrl } from "../src/main/update.js";
 import { adoptUserData } from "../src/main/usermigrate.js";
 import { windowAlive } from "../src/main/win.js";
@@ -442,4 +442,19 @@ test("设置：皮肤只收认识的 id，旧名字 hana 归一成新暖纸", ()
   assert.equal(sanitize({ theme: "coral" }).theme, "coral");
   assert.equal(sanitize({ theme: "pink" }).theme, DEFAULTS.theme);
   assert.equal(DEFAULTS.theme, "dark");
+});
+
+test("皮肤深浅：按归一后的 id 判断，浅色皮肤配浅色原生菜单", () => {
+  // 回归：main.js 以前写的是 t.theme === "hana"，那个 id 早就被归一成 new-warm-paper 了，
+  // 于是所有浅色皮肤配的都是深色原生菜单。
+  assert.equal(isLightSkin("new-warm-paper"), true);
+  assert.equal(isLightSkin("hana"), true); // 旧 id 也归一
+  for (const id of ["warm-paper", "high-contrast", "grass-aroma", "contemplation", "absolutely", "delve", "deep-think", "coral"]) {
+    assert.equal(isLightSkin(id), true, `${id} 是浅色皮肤`);
+  }
+  for (const id of ["dark", "midnight", "midnight-contrast"]) {
+    assert.equal(isLightSkin(id), false, `${id} 是深色皮肤`);
+  }
+  // 每套皮肤都得有明确答案，不能有既不算浅也不算深的
+  for (const skin of SKINS) assert.equal(typeof isLightSkin(skin.id), "boolean");
 });

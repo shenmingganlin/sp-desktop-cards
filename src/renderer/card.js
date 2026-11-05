@@ -70,9 +70,15 @@ const W = (() => {
     toastTimer = setTimeout(() => (box.hidden = true), undo ? 5000 : 4000);
   }
 
-  /** 发操作；失败时提示原因。 */
+  /** 发操作；失败时提示原因。主进程正在退出、handler 抛异常时 invoke 会 reject，这里一律折算成 { ok:false }——
+      调用方在 await 之后还有清理（清 pending、恢复输入框、解锁按钮），不能让它被异常跳过去。 */
   async function act(name, payload) {
-    const result = await window.widget.action(name, payload);
+    let result;
+    try {
+      result = await window.widget.action(name, payload);
+    } catch (error) {
+      result = { ok: false, message: error?.message || "主进程没有响应" };
+    }
     if (result && result.ok === false && name !== "rendered") toast(`没成功：${result.message || "未知错误"}`);
     return result;
   }

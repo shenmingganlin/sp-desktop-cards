@@ -120,6 +120,20 @@ try {
     assert.equal((await previewOf("warm-paper")).bg, "rgb(248, 244, 237)", "暖纸预览不是暖纸的底色");
   });
 
+  // 回归：main.js 以前用 t.theme === "hana" 决定原生菜单的深浅，可那个 id 早被归一成 new-warm-paper 了，
+  // 于是所有浅色皮肤配的都是深色原生菜单（⋯ 菜单、托盘菜单、原生对话框）。
+  await check("浅色皮肤配浅色原生菜单，深色皮肤配深色", async () => {
+    const expected = (id) => (["dark", "midnight", "midnight-contrast"].includes(id) ? "dark" : "light");
+    for (const id of ["warm-paper", "coral", "new-warm-paper", "dark", "midnight"]) {
+      await appearance.locator(`.skin[data-skin="${id}"]`).click();
+      await waitFor(async () => (await style()).theme === id);
+      const got = await app.evaluate(({ nativeTheme }) => nativeTheme.themeSource);
+      assert.equal(got, expected(id), `${id} 的原生菜单深浅不对`);
+    }
+    await appearance.locator('.skin[data-skin="warm-paper"]').click();
+    await waitFor(async () => (await style()).theme === "warm-paper");
+  });
+
   await check("外观里选深夜，卡片不重载就变色", async () => {
     const before = page.url();
     await appearance.locator('.skin[data-skin="dark"]').click();

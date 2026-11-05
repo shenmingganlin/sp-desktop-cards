@@ -154,6 +154,20 @@ test("设置：数值收敛到合法范围，未知字段丢掉，写盘可读�
   assert.equal(again.cards.focus.bounds, null);
 });
 
+test("设置：写盘失败不抛异常，内存里的设置照样是对的", () => {
+  // 回归：flush 由 setTimeout 触发，以前没有 try/catch。磁盘满、目录只读、杀软锁住 .tmp 时，
+  // 异常从定时器回调逃出去就是主进程崩溃弹窗。
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), "spw-"));
+  const file = path.join(parent, "settings.json");
+  // 把 settings.json 做成一个目录：写 .tmp 没事，改名到 settings.json 时必然失败
+  fs.mkdirSync(file);
+  const store = createSettingsStore(parent);
+  store.update({ opacity: 0.5 });
+  assert.doesNotThrow(() => store.flush(), "写盘失败不该把异常抛出去");
+  assert.equal(store.get().opacity, 0.5, "写不进去也不该影响内存里的设置");
+  fs.rmSync(parent, { recursive: true, force: true });
+});
+
 test("设置：读到 0.1.0 的文件时迁移后再用", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "spw-"));
   fs.writeFileSync(path.join(dir, "settings.json"), JSON.stringify({ bounds: { x: 50, y: 60, width: 320, height: 470 }, alwaysOnTop: true }));

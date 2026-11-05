@@ -183,13 +183,21 @@ export function createSettingsStore(dir) {
     // 第一次运行或文件损坏：用默认值
   }
   let timer = null;
+  // 写盘是同步 fs，磁盘满、目录只读、杀软锁住 .tmp 都会抛。
+  // 这条路径由 setTimeout 触发，异常从定时器里逃出去就是主进程崩溃弹窗——
+  // 和 cards.js 的 guard() 同一个道理：这一轮写不成就算了，下一次改设置再写，
+  // 内存里的设置始终是对的。
   const flush = () => {
     clearTimeout(timer);
     timer = null;
-    fs.mkdirSync(dir, { recursive: true });
-    const tmp = `${file}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
-    fs.renameSync(tmp, file);
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+      const tmp = `${file}.tmp`;
+      fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
+      fs.renameSync(tmp, file);
+    } catch {
+      // 写不进去就算了，别把主进程一起带走
+    }
   };
   const copy = () => structuredClone(data);
   return {

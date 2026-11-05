@@ -5,16 +5,9 @@
 //
 // 用时只按叶子任务累加：父任务的 timeSpentOnDay 已经包含子任务，再加一遍会翻倍。
 
-import { isDay, isTimestamp, localDay, pad2 } from "./model.js";
+import { addDays, isDay } from "./model.js";
 
 export const DIMENSIONS = ["tag", "project"];
-
-const parseDay = (day) => day.split("-").map(Number);
-const dayStr = (date) => `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
-const addDays = (day, n) => {
-  const [y, m, d] = parseDay(day);
-  return dayStr(new Date(y, m - 1, d + n));
-};
 
 /**
  * raw = { allTasks, projects, tags }，opts = { today, days = 7, by = "tag", top = 5 }。

@@ -5,25 +5,16 @@
 // 过去漏掉的日子 SP 不会补建，显示出来反而误导。
 // 日历事件（iCal/CalDAV）REST API 不提供，这里没有。
 
-import { hhmm, isDay, isTimestamp, localDay, pad2, resolveToday } from "./model.js";
+import { addDays, dayStr, hhmm, isDay, isTimestamp, left, localDay, midnightOf, pad2, parseDay, resolveToday } from "./model.js";
 import { getRepeatDueWithTime, getTaskRepeatCfgsForExactDay, isValidSplitTime } from "./repeat.js";
 
 const MIN = 60_000;
 const WEEKDAY = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
 const REL = new Map([[-1, "昨天"], [0, "今天"], [1, "明天"], [2, "后天"]]);
 
-const parseDay = (day) => day.split("-").map(Number);
-const dayStr = (date) => `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
-const midnightOf = (day) => {
-  const [y, m, d] = parseDay(day);
-  return new Date(y, m - 1, d).getTime();
-};
-
-/** YYYY-MM-DD 往后（n 为负往前）挪几天。 */
-export function addDays(day, n) {
-  const [y, m, d] = parseDay(day);
-  return dayStr(new Date(y, m - 1, d + n));
-}
+// 日期小工具在 model.js：规划、日程、月历、统计、热力图用的是同一套。
+// 这里再导出一遍 addDays，日历相关的东西从 calendar.js 拿得到，调用方不用记它住在哪。
+export { addDays };
 
 const diffDays = (a, b) => Math.round((midnightOf(a) - midnightOf(b)) / 86400_000);
 
@@ -32,8 +23,6 @@ export function dayLabel(day, today) {
   const [y, m, d] = parseDay(day);
   return { rel: REL.get(diffDays(day, today)) ?? null, date: `${m}月${d}日`, weekday: WEEKDAY[new Date(y, m - 1, d).getDay()] };
 }
-
-const left = (t) => Math.max(0, (t.timeEstimate || 0) - (t.timeSpent || 0));
 
 /** 公共部分：今天是哪天、按天分好的任务和截止日、有效的重复配置。 */
 function context(raw, opts) {

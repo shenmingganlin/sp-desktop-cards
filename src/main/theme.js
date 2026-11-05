@@ -44,6 +44,11 @@ export const BACKGROUND = {
 export const isSkin = (id) => SKIN_IDS.includes(id);
 /** 0.3.0 的外部文件里新暖纸叫 hana；现在统一叫 new-warm-paper。 */
 export const normalizeSkin = (id) => (id === "hana" ? "new-warm-paper" : isSkin(id) ? id : null);
+
+// 深底的三套，其余都是浅底。原生菜单、托盘菜单、系统对话框按这个选深浅，
+// 不按「是不是 Hana」猜——判断要放在归一之后，不然浅色皮肤配的仍是深色菜单。
+const DARK_SKINS = new Set(["dark", "midnight", "midnight-contrast"]);
+export const isLightSkin = (id) => !DARK_SKINS.has(normalizeSkin(id) || DEFAULT_SKIN);
 export const skinOf = (id) => SKINS.find((s) => s.id === normalizeSkin(id)) || SKINS[0];
 
 /** 读外部主题文件；不存在、JSON 坏了、皮肤名不认识都当没有。 */

@@ -16,7 +16,9 @@ body {
   border: var(--hairline) solid var(--line);
 }
 
-/* ── 顶栏：和卡片一样能按住拖 ── */
+/* ── 顶栏：和卡片一样能按住拖 ──
+   卡片那条拖法是主进程按光标算的（要整组走、要吸附），这个窗口用不上，
+   直接交给系统：无边框窗口只有标了 app-region 的地方能拖。 */
 #head {
   display: flex;
   align-items: center;
@@ -25,6 +27,7 @@ body {
   padding: 0 12px;
   background: var(--bg-2);
   cursor: default;
+  -webkit-app-region: drag;
 }
 #title { font-weight: 600; font-size: 12px; }
 

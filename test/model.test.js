@@ -34,6 +34,18 @@ test("今天是哪天：优先用只排了日期的今日任务", () => {
   assert.equal(resolveToday([], lateNight, 0), "2026-11-03");
 });
 
+test("今天是哪天：TODAY 标签挂在别的日期的任务上时，不跟着它跑", () => {
+  const lateNight = new Date(2026, 10, 3, 1, 30).getTime();
+  // 回归：以前直接拿第一条只有日期的今日任务定「今天」。TODAY 标签可以手动加，
+  // 也可以把任务日期改到下周，那样整张卡片的逾期、规划起点、番茄跨天全按错的那天算。
+  assert.equal(resolveToday([task({ dueDay: "2026-12-25" })], lateNight, 0), "2026-11-03");
+  // 跟本机推算差一天以内的照旧采信（SP 的日界不是 0 点时凌晨就是这样）
+  assert.equal(resolveToday([task({ dueDay: "2026-11-02" })], lateNight, 0), "2026-11-02");
+  // 一堆任务里挑得出那条对得上的
+  const list = [task({ dueDay: "2027-01-01" }), task({ dueDay: "2026-11-03" })];
+  assert.equal(resolveToday(list, lateNight, 0), "2026-11-03");
+});
+
 test("今日列表：带时间的按时间排前，其余按 SP 今日视图顺序", () => {
   const v = view();
   assert.equal(v.today, TODAY);

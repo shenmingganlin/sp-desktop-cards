@@ -4,9 +4,7 @@
 // 有截止日的排前面（越早越前），没截止日的按 SP 里的顺序；子任务挂在父任务下面。
 // 父任务和子任务都在这个清单里时，子任务不单列，只出现在父任务下面。
 
-import { hhmm, isDay, isTimestamp } from "./model.js";
-
-const left = (t) => Math.max(0, (t.timeEstimate || 0) - (t.timeSpent || 0));
+import { hhmm, isDay, isTimestamp, left } from "./model.js";
 
 /** 从 SP 的 project / tag 对象里取清单卡要的那几个字段。 */
 export const sourceOf = (kind, item) => (item ? { kind, id: item.id, title: item.title || (kind === "tag" ? "标签" : "项目") } : null);

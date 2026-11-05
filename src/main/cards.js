@@ -193,13 +193,19 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
   // 窗口本来就是分层的（设置里的不透明度默认 0.95），setOpacity 不动 owner，也不影响桌面层的 Z 序。
   const fades = new Map(); // type → 定时器
 
-  function stopFade(type) {
-    const timer = fades.get(type);
-    if (timer) clearInterval(timer);
+  /**
+   * 停掉正在跑的补间。runDone 为真时先把它的收尾回调跑掉——
+   * 淡出通常挂着一个「关掉这张卡」的回调，被新的补间顶掉时不能把这件事一起丢了。
+   */
+  function stopFade(type, runDone = false) {
+    const fade = fades.get(type);
+    if (!fade) return;
+    clearInterval(fade.timer);
     fades.delete(type);
+    if (runDone) fade.done?.();
   }
 
-  /** 把卡片的不透明度渐变到 to（0~1）。走完了才调 done；中途被新的 fade 顶掉就不调。 */
+  /** 把卡片的不透明度渐变到 to（0~1）。走完了才调 done。 */
   function fadeTo(type, to, done) {
     stopFade(type);
     const w = wins.get(type);
@@ -212,7 +218,8 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
       return;
     }
     const started = Date.now();
-    const timer = setInterval(guard(() => {
+    const fade = { done, timer: null };
+    fade.timer = setInterval(guard(() => {
       const win = wins.get(type);
       if (!usable(win)) return stopFade(type);
       const k = Math.min(1, (Date.now() - started) / FADE_MS);
@@ -221,7 +228,7 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
       stopFade(type);
       done?.();
     }), 16);
-    fades.set(type, timer);
+    fades.set(type, fade);
   }
 
   /**
@@ -614,6 +621,7 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
       clearInterval(reattachTimer);
       clearInterval(inputTimer);
       clearInterval(settleTimer);
+      // 窗口马上就要一起关了，补间直接停掉，不必再补 hide / destroy
       for (const type of [...fades.keys()]) stopFade(type);
       for (const [type] of alive()) remember(type);
     },
@@ -638,10 +646,12 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
       for (const [type] of alive()) applyMode(type);
     },
     setOpacity(opacity) {
-      // 设置里改不透明度：正在淡入淡出的让位，直接落到新值
+      // 设置里改不透明度：正在淡入淡出的让位，直接落到新值。
+      // 淡出到一半被打断时，它挂着的「隐藏 / 销毁」得先执行——
+      // 不然卡片会停在半透明状态继续露着，设置里却已经写着不显示。
       for (const [type, w] of alive()) {
-        stopFade(type);
-        w.setOpacity(opacity);
+        stopFade(type, true);
+        if (usable(w)) w.setOpacity(opacity);
       }
     },
     /**

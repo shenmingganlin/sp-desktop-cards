@@ -125,16 +125,8 @@
     if (e.key === "Escape") act("closeHotkey");
   });
 
-  // 顶栏拖动：和卡片一样交给主进程，用窗口外框算
-  const head = $("head");
-  head.addEventListener("pointerdown", (e) => {
-    if (e.button !== 0) return;
-    head.setPointerCapture(e.pointerId);
-    window.widget.dragStart(false);
-  });
-  for (const type of ["pointerup", "pointercancel", "lostpointercapture"]) {
-    head.addEventListener(type, () => window.widget.dragEnd());
-  }
+  // 顶栏拖动由 CSS 的 -webkit-app-region: drag 负责（见 hotkey.css），
+  // 不再走主进程那套卡片拖法——那条路只认卡片窗口，这里发过去会被丢掉，窗口就拖不动了。
 
   window.widget.onEvent((e) => {
     if (e?.type === "theme" && window.WTheme) window.WTheme.apply(e.theme);

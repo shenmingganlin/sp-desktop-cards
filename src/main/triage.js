@@ -9,9 +9,7 @@
 //
 // 「排到今天」需要 PATCH dueDay，SP 的 REST API 支持（2026-11 实测，清空也支持）。
 
-import { isDay, isTimestamp } from "./model.js";
-
-const left = (t) => Math.max(0, (t.timeEstimate || 0) - (t.timeSpent || 0));
+import { isDay, isTimestamp, left } from "./model.js";
 export const INBOX = "INBOX_PROJECT";
 
 /**
@@ -64,8 +62,10 @@ export function buildTriage(raw, opts = {}) {
     }
   }
 
-  // 每堆内部：先有预估的（知道要花多久，好挑），再按 SP 里的顺序
-  const order = (a, b) => (b.estimate > 0) - (a.estimate > 0) || all.findIndex((t) => t.id === a.id) - all.findIndex((t) => t.id === b.id);
+  // 每堆内部：先有预估的（知道要花多久，好挑），再按 SP 里的顺序。
+  // 下标先建一张表：比较器里现查 all.findIndex 是 O(n)，排序会退化成 O(n² log n)，任务上千条时每次刷新都卡一下。
+  const rankOf = new Map(all.map((t, i) => [t.id, i]));
+  const order = (a, b) => (b.estimate > 0) - (a.estimate > 0) || rankOf.get(a.id) - rankOf.get(b.id);
   inbox.sort(order);
   unscheduled.sort(order);
   unfinished.sort(order);

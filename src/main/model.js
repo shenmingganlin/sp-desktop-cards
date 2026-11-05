@@ -26,16 +26,42 @@ export function dayDiff(a, b) {
   return Math.round((toUtc(a) - toUtc(b)) / 86400_000);
 }
 
+// ── 日期小工具 ──
+// 规划、日程、月历、统计、热力图、时间去向都用同一套，别再各写一份：
+// 各写一份时改一处漏一处，卡片之间的日期就会错开一天。
+export const parseDay = (day) => day.split("-").map(Number);
+
+export function dayStr(date) {
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+}
+
+/** YYYY-MM-DD 往后（n 为负往前）挪几天。 */
+export function addDays(day, n) {
+  const [y, m, d] = parseDay(day);
+  return dayStr(new Date(y, m - 1, d + n));
+}
+
+/** YYYY-MM-DD 那天 0 点的毫秒数（本机时区）。 */
+export function midnightOf(day) {
+  const [y, m, d] = parseDay(day);
+  return new Date(y, m - 1, d).getTime();
+}
+
 /**
  * SP 判定的「今天」是哪一天。SP 不在 REST 里直接给出这个值，
  * 所以先看今日任务里只排了日期的任务（它们的 dueDay 就是 SP 的今天），
  * 没有这样的任务时才用本机时间和设置里的日界推算。
  */
 export function resolveToday(todayTasks, now, dayStartHour) {
+  const guess = localDay(now, dayStartHour);
   for (const t of todayTasks) {
-    if (!isTimestamp(t.dueWithTime) && isDay(t.dueDay)) return t.dueDay;
+    if (isTimestamp(t.dueWithTime) || !isDay(t.dueDay)) continue;
+    // 只采信「跟本机推算差不多」的那天：TODAY 标签可以挂在别的日期的任务上
+    // （手动加标签、或者把日期改到了下周），直接拿第一条的 dueDay 当今天，
+    // 逾期判断、规划/日程/月历的起点、番茄钟跨天清零就全错位了。
+    if (Math.abs(dayDiff(t.dueDay, guess)) <= 1) return t.dueDay;
   }
-  return localDay(now, dayStartHour);
+  return guess;
 }
 
 export function hhmm(ms) {
@@ -62,7 +88,8 @@ export function duration(ms) {
   return `${m} 分`;
 }
 
-const left = (t) => Math.max(0, (t.timeEstimate || 0) - (t.timeSpent || 0));
+/** 一个任务还剩多少（毫秒），按它自己的预估减已用。各处卡片共用同一份算法。 */
+export const left = (t) => Math.max(0, (t.timeEstimate || 0) - (t.timeSpent || 0));
 
 /** 任务为什么算逾期；不逾期返回 null。 */
 function overdueReason(t, today, now) {

@@ -6,23 +6,7 @@
 // 网格按周排，周一在最上面、周日最下。第一列可能只有几天属于窗口内，用 inRange 标出来，
 // 页面据此把格子画淡——不然会以为那几天是「没干活」而不是「不在范围里」。
 
-import { isDay, isTimestamp, localDay, pad2 } from "./model.js";
-
-const DAY = 86400_000;
-
-const parseDay = (day) => day.split("-").map(Number);
-const dayStr = (date) => `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
-const addDays = (day, n) => {
-  const [y, m, d] = parseDay(day);
-  return dayStr(new Date(y, m - 1, d + n));
-};
-const diffDays = (a, b) => {
-  const toUtc = (s) => {
-    const [y, m, d] = parseDay(s);
-    return Date.UTC(y, m - 1, d);
-  };
-  return Math.round((toUtc(a) - toUtc(b)) / DAY);
-};
+import { addDays, isDay, isTimestamp, localDay, parseDay } from "./model.js";
 /** 0 = 周一 … 6 = 周日 */
 const mondayIndex = (day) => {
   const [y, m, d] = parseDay(day);

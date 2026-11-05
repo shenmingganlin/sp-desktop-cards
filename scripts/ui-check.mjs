@@ -279,6 +279,27 @@ try {
     assert.ok(near(b.x, 1018) && near(b.y, 40), `月历回到原位，实际 ${JSON.stringify(b)}`);
   });
 
+  // 回归：淡出到一半被「改不透明度」打断时，挂着的「销毁这张卡」必须照样执行。
+  // 以前 stopFade 只清定时器、不跑收尾回调，卡片会停在半透明露着，设置里却已经写着不显示。
+  await check("设置：卡片淡出到一半时改不透明度，卡片照样关掉", async () => {
+    await settingsPage.locator("[data-card='month']").uncheck();
+    // 30ms 后改不透明度：这时淡出（140ms）正跑着，一定会被打断
+    await settingsPage.evaluate(() => new Promise((done) => {
+      setTimeout(() => {
+        window.widget.action("saveSettings", { opacity: 0.55 });
+        setTimeout(done, 900);
+      }, 30);
+    }));
+    await until(() => !app.windows().some((p) => cardOf(p) === "month"), "月历窗口关掉");
+    await settingsPage.evaluate(() => window.widget.action("saveSettings", { opacity: 0.95 }));
+    await until(() => saved().opacity === 0.95, "还原不透明度");
+    // 再打开，后面几条检查还要用它
+    await settingsPage.locator("[data-card='month']").check();
+    await until(() => app.windows().some((p) => cardOf(p) === "month"), "月历窗口回来");
+    pages.month = app.windows().find((p) => cardOf(p) === "month");
+    await pages.month.locator(".cell").first().waitFor();
+  });
+
   await check("设置：打开统计卡片，今日用时和 7 天柱状图画出来", async () => {
     await settingsPage.locator("[data-card='stats']").check();
     await until(() => app.windows().some((p) => cardOf(p) === "stats"), "统计窗口");

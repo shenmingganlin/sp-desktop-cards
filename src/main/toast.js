@@ -62,9 +62,10 @@ export function createToast({ preload, page, themeId = () => "dark" }) {
     w.webContents.on("will-navigate", (e) => e.preventDefault());
     w.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
     w.once("ready-to-show", () => {
-      if (!windowAlive(w)) return;
+      // 页面起来得太慢、提示已经过期时，别把一个空窗口顶到屏幕上
+      if (!payload || !windowAlive(w)) return;
       w.showInactive();
-      if (payload) send(w, payload);
+      send(w, payload);
     });
     w.on("closed", () => {
       if (win === w) win = null;
