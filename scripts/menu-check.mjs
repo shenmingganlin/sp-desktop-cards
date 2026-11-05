@@ -195,6 +195,28 @@ try {
     assert.deepEqual(await allAtLayer(), [], "关菜单后卡片没留在桌面层");
   });
 
+  // 回归：嵌入桌面时原生菜单一关，页面就收不到鼠标消息了，打开菜单那一刻停在 ⋯ 上的
+  // hover 会一直亮着（用户报的「点了菜单三个点一直发光」）。关菜单时补一条鼠标移出窗口。
+  await check("菜单关掉时补一条鼠标移出，⋯ 不会冻在高亮上", async () => {
+    await app.evaluate(({ BrowserWindow }) => {
+      const w = BrowserWindow.getAllWindows().find((x) => x.webContents.getURL().includes("card=today"));
+      if (globalThis.__hoverHooked) return;
+      globalThis.__hoverHooked = true;
+      globalThis.__hoverCleared = 0;
+      const orig = w.webContents.sendInputEvent.bind(w.webContents);
+      w.webContents.sendInputEvent = (e) => {
+        if (e && e.type === "mouseMove" && e.x < 0) globalThis.__hoverCleared += 1;
+        return orig(e);
+      };
+    });
+    await today.locator("#menu").click();
+    await sleep(900);
+    await esc();
+    await sleep(400);
+    const cleared = await app.evaluate(() => globalThis.__hoverCleared);
+    assert.ok(cleared > 0, "菜单关掉后没清 hover，⋯ 会一直亮着");
+  });
+
   await check("菜单：开着不关放 6 秒，卡片也不动、不消失", async () => {
     await watch();
     const before = await menuWindows();

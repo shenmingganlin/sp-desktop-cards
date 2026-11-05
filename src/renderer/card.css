@@ -85,50 +85,30 @@ body.locked .hnd { display: none; }
 .icon:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 #collapse { font-size: 14px; }
 
-/* ── 不挡点击的提示 ── */
-/* 图标画一次放在页面里，两处 <use> 引用 */
+/* ── 不挡点击：卡片这时点不动，按「背景板」处理 ── */
+/* 图标画一次放在页面里 */
 .sprite { display: none; }
 .ico { width: 13px; height: 13px; flex: none; }
 
-/* 展开时顶栏下面挂一条；折叠时只剩顶栏，改在顶栏放一个小图标 */
-#blocked { display: none; }
-body.click-through #blocked {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 5px 10px;
-  background: var(--bg-attention);
-  border-bottom: var(--hairline) solid var(--line);
-  font-size: 11px;
-  color: var(--text);
-  white-space: nowrap;
-  overflow: hidden;
-}
-body.click-through.collapsed #blocked { display: none; }
-#blocked .ico { color: var(--accent); }
-#blocked .label { flex: none; font-weight: 600; letter-spacing: 0.02em; }
-#blocked .kbd {
-  margin-left: auto;
-  flex: none;
-  padding: 1px 6px;
-  border: var(--hairline) solid var(--line-strong);
-  border-radius: var(--radius-sm);
-  background: var(--bg-2);
-  color: var(--dim);
-  font-size: 10px;
-}
-#blocked .kbd[hidden] { display: none; }
-
+/* 不挂整条横幅：一屏十几张卡片就是十几条，太吵。顶栏留一个禁止符号 + 两个字的说明，
+   内容再压一档，卡片自己就读作「背景板」了。展开、折叠都在顶栏，不用两套。 */
 #blocked-mark {
   display: none;
   flex: none;
-  width: 20px;
-  height: 20px;
   align-items: center;
-  justify-content: center;
-  color: var(--accent);
+  gap: 4px;
+  padding: 0 4px;
+  color: var(--faint);
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
 }
-body.click-through.collapsed #blocked-mark { display: flex; }
+body.click-through #blocked-mark { display: flex; }
+#blocked-mark .ico { width: 12px; height: 12px; }
+body.click-through #body,
+body.click-through #foot { opacity: 0.78; }
+/* 断线时的「旧数据」提示比这个更弱，别被上面的规则盖回去 */
+body.click-through #body.stale { opacity: 0.55; }
 
 /* ── 主体 ── */
 #body { flex: 1; overflow-y: auto; min-height: 0; position: relative; }

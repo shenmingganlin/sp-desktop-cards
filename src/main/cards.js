@@ -32,6 +32,7 @@ const REATTACH_MS = 5000;
 const RECREATE_MS = 1500;
 const INPUT_CHECK_MS = 500;
 const SETTLE_MS = 16; // 桌面层多久校一次；16ms 约一帧，点桌面把卡片带起来也看不出来
+const FADE_MS = 140; // 显示/隐藏的淡入淡出时长
 
 /**
  * settings 是设置存储；page 是 card.html 的路径；onChange 在卡片显示/隐藏后调用（刷新托盘菜单）。
@@ -187,6 +188,56 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
     };
   }
 
+  // ── 淡入淡出 ──
+  // 卡片直接弹出来太生硬，显示和隐藏都走一小段不透明度动画。
+  // 窗口本来就是分层的（设置里的不透明度默认 0.95），setOpacity 不动 owner，也不影响桌面层的 Z 序。
+  const fades = new Map(); // type → 定时器
+
+  function stopFade(type) {
+    const timer = fades.get(type);
+    if (timer) clearInterval(timer);
+    fades.delete(type);
+  }
+
+  /** 把卡片的不透明度渐变到 to（0~1）。走完了才调 done；中途被新的 fade 顶掉就不调。 */
+  function fadeTo(type, to, done) {
+    stopFade(type);
+    const w = wins.get(type);
+    if (!usable(w)) return;
+    const target = Math.max(0, Math.min(1, to));
+    const from = w.getOpacity();
+    if (Math.abs(target - from) < 0.02) {
+      w.setOpacity(target);
+      done?.();
+      return;
+    }
+    const started = Date.now();
+    const timer = setInterval(guard(() => {
+      const win = wins.get(type);
+      if (!usable(win)) return stopFade(type);
+      const k = Math.min(1, (Date.now() - started) / FADE_MS);
+      win.setOpacity(from + (target - from) * (1 - (1 - k) ** 3)); // 收尾慢一点，比线性自然
+      if (k < 1) return;
+      stopFade(type);
+      done?.();
+    }), 16);
+    fades.set(type, timer);
+  }
+
+  /**
+   * 原生菜单关掉之后，渲染进程就不再收到鼠标消息了（嵌入桌面时必现）：
+   * 打开菜单那一刻鼠标停在哪儿，那点 hover 就一直亮着——用户看到的就是「⋯ 点完一直高亮」。
+   * 补一条合成的鼠标移动，把它移出窗口，让页面自己把 hover 清掉。
+   */
+  function clearHover(w) {
+    if (!usable(w)) return;
+    try {
+      w.webContents.sendInputEvent({ type: "mouseMove", x: -5, y: -5 });
+    } catch {
+      // 窗口正在消失，这一下丢了没关系
+    }
+  }
+
   function syncTimer() {
     clearInterval(reattachTimer);
     reattachTimer = null;
@@ -259,7 +310,8 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
     });
     wins.set(type, w);
     w.setMenu(null);
-    w.setOpacity(s.opacity);
+    // 从透明开始，显示的时候再淡进来（见 ready-to-show）
+    w.setOpacity(0);
     applyLimits(type);
     place(type, bounds);
     applyMode(type);
@@ -297,8 +349,10 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
     });
     w.once("ready-to-show", () => {
       if (hiddenAll || !usable(w)) return;
+      w.setOpacity(0); // 隐藏期间设的不透明度不一定会落下去，露面前再钉一次
       w.showInactive();
       settle();
+      fadeTo(type, settings.get().opacity);
     });
     w.loadFile(page, { query: { card: type, theme: themeId() } });
     return w;
@@ -428,12 +482,14 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
       showAll(); // 全部藏起来时打开一张：其他的也一起回来
       return;
     }
-    if (visible && !usable(w)) {
-      create(type);
-    } else if (!visible && usable(w)) {
+    if (visible) {
+      closing.delete(type); // 淡出到一半又打开：取消掉原来的销毁
+      if (!usable(w)) create(type);
+      else fadeTo(type, settings.get().opacity);
+    } else if (usable(w)) {
       remember(type);
       closing.add(type);
-      w.destroy();
+      fadeTo(type, 0, () => usable(w) && w.destroy());
     }
     onChange();
   }
@@ -449,10 +505,12 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
         create(type);
         continue;
       }
+      if (!w.isVisible()) w.setOpacity(0); // 从藏着的状态回来才淡入；本来就露着的不闪
       w.showInactive();
       applyMode(type);
       // 隐藏再显示会把扩展样式重置掉，穿透状态要重新设一遍
       w.setIgnoreMouseEvents(!!settings.get().clickThrough);
+      fadeTo(type, settings.get().opacity);
     }
     onChange();
   }
@@ -462,7 +520,7 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
     dragEnd();
     attending.clear();
     typing.clear();
-    for (const [, w] of alive()) w.hide();
+    for (const [type, w] of alive()) fadeTo(type, 0, () => usable(w) && w.hide());
     onChange();
   }
 
@@ -531,7 +589,14 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
   function popup(type, menu) {
     const w = wins.get(type);
     if (!usable(w)) return;
-    menu.popup({ window: w, callback: () => settle() });
+    menu.popup({
+      window: w,
+      callback: () => {
+        // 菜单关掉后页面收不到鼠标消息了，停在 ⋯ 上的 hover 会一直亮着
+        clearHover(w);
+        settle();
+      },
+    });
   }
 
   return {
@@ -549,6 +614,7 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
       clearInterval(reattachTimer);
       clearInterval(inputTimer);
       clearInterval(settleTimer);
+      for (const type of [...fades.keys()]) stopFade(type);
       for (const [type] of alive()) remember(type);
     },
     /** 改了显示模式后调用。 */
@@ -572,7 +638,11 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
       for (const [type] of alive()) applyMode(type);
     },
     setOpacity(opacity) {
-      for (const [, w] of alive()) w.setOpacity(opacity);
+      // 设置里改不透明度：正在淡入淡出的让位，直接落到新值
+      for (const [type, w] of alive()) {
+        stopFade(type);
+        w.setOpacity(opacity);
+      }
     },
     /**
      * 不挡点击：鼠标落在卡片上时穿透到下面去。
@@ -580,7 +650,11 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
      * 普通窗口本来就在别的窗口下面，开了也看不出差别，但状态照样保存。
      */
     setClickThrough(on) {
-      for (const [, w] of alive()) w.setIgnoreMouseEvents(!!on);
+      for (const [, w] of alive()) {
+        w.setIgnoreMouseEvents(!!on);
+        // 一开穿透，页面就再也收不到鼠标消息，当时停在哪儿的 hover 会一直亮着
+        if (on) clearHover(w);
+      }
     },
     /** 换皮肤时同步窗口底色，免得改大小的过程中露出旧颜色。 */
     setBackground(color) {

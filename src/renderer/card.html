@@ -22,17 +22,13 @@
         <span id="sub"></span>
       </div>
       <div id="tools"></div>
-      <span id="blocked-mark" title="不挡点击已开启：鼠标会穿过卡片">
+      <!-- 不挡点击开着时露出来：卡片这时点不动，留个禁止符号说明原因（展开、折叠都在顶栏） -->
+      <span id="blocked-mark">
         <svg class="ico"><use href="#i-blocked" /></svg>
+        <span class="label">不可点击</span>
       </span>
       <button id="menu" class="icon" title="菜单">⋯</button>
     </header>
-    <!-- 不挡点击开着时一直挂着：卡片点不动，得让用户看见原因和关掉的办法 -->
-    <div id="blocked">
-      <svg class="ico"><use href="#i-blocked" /></svg>
-      <span class="label">当前不可点击</span>
-      <span class="kbd" id="blocked-key"></span>
-    </div>
     <div id="banner" hidden></div>
     <main id="body"></main>
     <footer id="foot"></footer>

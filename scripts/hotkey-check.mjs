@@ -172,25 +172,29 @@ try {
     }
   });
 
-  await check("开着不挡点击时，卡片上写着当前不可点击", async () => {
+  await check("开着不挡点击时，卡片按「背景板」显示：顶栏禁止标志、内容压一档", async () => {
     await page.evaluate(() => window.widget.action("toggleClickThrough", { on: true }));
     await waitFor(() => page.evaluate(() => document.body.classList.contains("click-through")), 3000);
-    const note = page.locator("#blocked");
-    assert.equal(await note.isVisible(), true, "卡片上没有「当前不可点击」提示");
-    assert.match(await note.textContent(), /当前不可点击/, "提示文案不对");
-    assert.ok((await note.textContent()).includes(KEY_TEXT), "提示里没写怎么关");
-    assert.equal(await page.locator("#blocked-mark").isVisible(), false, "展开时不该只显示图标");
-    // 折叠后只剩顶栏：说明条收起，改在顶栏放图标
+    const mark = page.locator("#blocked-mark");
+    assert.equal(await mark.isVisible(), true, "顶栏没有禁止标志");
+    assert.match(await mark.textContent(), /不可点击/, "标志旁边没写原因");
+    // 不再挂整条横幅：一屏十几张卡就是十几条，太吵
+    assert.equal(await page.locator("#blocked").count(), 0, "不该再有整条横幅");
+    // 内容压一档，让卡片自己读作背景板
+    const dim = await page.evaluate(() => Number(getComputedStyle(document.getElementById("body")).opacity));
+    assert.ok(dim < 1, `内容没有压暗（opacity=${dim}）`);
+    // 折叠后顶栏还在，标志也还在
     await page.evaluate(() => window.widget.action("toggleCollapsed"));
     await waitFor(() => page.evaluate(() => document.body.classList.contains("collapsed")), 3000);
-    assert.equal(await note.isVisible(), false, "折叠时说明条该收起");
-    assert.equal(await page.locator("#blocked-mark").isVisible(), true, "折叠时顶栏该有图标");
+    assert.equal(await mark.isVisible(), true, "折叠后顶栏该照样有标志");
     await page.evaluate(() => window.widget.action("toggleCollapsed"));
     await waitFor(() => page.evaluate(() => !document.body.classList.contains("collapsed")), 3000);
-    // 关掉就收起来
+    // 关掉就收起来，内容也恢复
     await page.evaluate(() => window.widget.action("toggleClickThrough", { on: false }));
     await waitFor(() => page.evaluate(() => !document.body.classList.contains("click-through")), 3000);
-    assert.equal(await note.isVisible(), false, "关了还在提示");
+    assert.equal(await mark.isVisible(), false, "关了还挂着标志");
+    const full = await page.evaluate(() => Number(getComputedStyle(document.getElementById("body")).opacity));
+    assert.equal(full, 1, `关了内容还是暗的（opacity=${full}）`);
   });
 
   // 录制窗

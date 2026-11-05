@@ -279,18 +279,14 @@ const W = (() => {
     if (show) banner.textContent = state.error.message;
   }
 
-  // 不挡点击开着时，卡片上什么也点不动。不说明原因的话，用户只会以为程序卡死了。
-  // 展开时顶栏下面挂一条说明，折叠时只剩顶栏，就在顶栏放一个小图标。
-  function renderBlocked() {
+  // 不挡点击开着时，卡片上什么也点不动。不说明原因的话，用户只会以为程序卡死了；
+  // 但整条横幅太重（每张卡都挂一条），所以只在顶栏留一个禁止符号 + 「不可点击」，
+  // 内容压一档，让卡片自己读作背景板。怎么关由主进程那条提示说（带当前快捷键）。
+  function renderClickThrough() {
     const s = state.settings || {};
     const on = !!s.clickThrough;
     document.body.classList.toggle("click-through", on);
-    const key = s.clickThroughKeyText || "";
-    const text = key ? `${key} 切换` : "";
-    const chip = $("blocked-key");
-    if (chip.textContent !== text) chip.textContent = text;
-    chip.hidden = !text;
-    $("blocked-mark").title = on ? `不挡点击已开启，鼠标会穿过卡片${key ? `。按 ${key} 关掉` : ""}` : "";
+    $("blocked-mark").title = on ? `不挡点击已开启，鼠标会穿过卡片${s.clickThroughKeyText ? `。按 ${s.clickThroughKeyText} 关掉` : ""}` : "";
   }
   function renderEmpty(body) {
     const box = el("div", "empty");
@@ -320,7 +316,7 @@ const W = (() => {
     renderTools();
     renderSub();
     renderBanner();
-    renderBlocked();
+    renderClickThrough();
 
     const sig = JSON.stringify([
       usable() && d.sig ? d.sig(state) : null,

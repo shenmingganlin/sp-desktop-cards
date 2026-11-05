@@ -21,6 +21,7 @@ import { createClient, DEFAULT_BASE_URL, HINTS } from "./sp-client.js";
 import { buildStats } from "./stats.js";
 import { buildTriage } from "./triage.js";
 import * as theme from "./theme.js";
+import { createToast } from "./toast.js";
 import { isValidToken, readSpToken } from "./token.js";
 import * as updateCheck from "./update.js";
 import { adoptUserData } from "./usermigrate.js";
@@ -54,9 +55,7 @@ let tray = null;
 let settingsWin = null;
 let appearanceWin = null;
 let hotkeyWin = null;
-let toastWin = null;
-let toastTimer = null;
-let toastPayload = null;
+let toast = null; // 桌面上浮一下就走的提示（见 toast.js）
 let hotkeyRegistered = ""; // 当前注册成功的 accelerator，空表示没注册上
 let hotkeyNotice = ""; // 注册不上时的原因，显示在设置里
 let raw = null; // SP 最近一次的原始数据
@@ -98,72 +97,15 @@ function applyTheme() {
 function setClickThrough(on) {
   const next = typeof on === "boolean" ? on : !settings.get().clickThrough;
   saveSettings({ clickThrough: next });
-  showToast(next ? "不挡点击已开启" : "不挡点击已关闭", next);
-  return next;
-}
-
-/**
- * 桌面上浮一条小提示，过一会儿自己消失。
- * 窗口透明、不接鼠标、不抢焦点，所以就算正好压在别的东西上也不碍事。
- */
-function showToast(text, on, ms = 1600) {
-  if (SMOKE) return; // 自检时截图会被它挡住
-  // 带上当前快捷键：穿透开着时卡片点不到，这是用户唯一能想起来怎么关的地方
-  const key = hotkey.keyText(settings.get().clickThroughKey);
-  const payload = { text, on: !!on, key, ms, theme: currentTheme().theme };
-  toastPayload = payload;
-  const width = 360;
-  const height = 76;
-  // 光标在哪块屏就浮在哪块屏的底部中间
-  const area = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea;
-  const bounds = {
-    x: Math.round(area.x + (area.width - width) / 2),
-    y: Math.round(area.y + area.height - height - 48),
-    width,
-    height,
-  };
-  if (!windowAlive(toastWin)) {
-    toastWin = new BrowserWindow({
-      ...bounds,
-      frame: false,
-      transparent: true,
-      resizable: false,
-      movable: false,
-      minimizable: false,
-      maximizable: false,
-      fullscreenable: false,
-      skipTaskbar: true,
-      show: false,
-      focusable: false, // 不抢焦点：按快捷键时用户可能正在别的程序里打字
-      hasShadow: false,
-      alwaysOnTop: true,
-      backgroundColor: "#00000000",
-      title: "SP 桌面卡片 · 提示",
-      webPreferences: { preload, contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: false },
+  if (!SMOKE) {
+    // 带上当前快捷键：穿透开着时卡片点不到，这是用户唯一能想起来怎么关的地方
+    toast?.show({
+      text: next ? "不挡点击已开启" : "不挡点击已关闭",
+      on: next,
+      key: hotkey.keyText(settings.get().clickThroughKey),
     });
-    toastWin.setMenu(null);
-    // 提示条自己也不挡点击
-    toastWin.setIgnoreMouseEvents(true);
-    toastWin.setAlwaysOnTop(true, "screen-saver");
-    toastWin.webContents.on("will-navigate", (e) => e.preventDefault());
-    toastWin.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-    toastWin.once("ready-to-show", () => {
-      if (!windowAlive(toastWin)) return;
-      toastWin.showInactive();
-      toastWin.webContents.send("event", { type: "toast", ...toastPayload });
-    });
-    toastWin.on("closed", () => (toastWin = null));
-    toastWin.loadFile(path.join(renderer, "toast.html"), { query: { theme: currentTheme().theme } });
-  } else {
-    toastWin.setBounds(bounds);
-    toastWin.webContents.send("event", { type: "toast", ...payload });
-    toastWin.showInactive();
   }
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => {
-    toastPayload = null;
-    if (windowAlive(toastWin)) toastWin.hide();
-  }, ms);
+  return next;
 }
 
 /**
@@ -1014,7 +956,7 @@ const hotkeyActions = {
 
 const toastActions = {
   // 页面起来晚了、错过第一条推送时自己来问一次
-  toastReady: () => (toastPayload ? toastWin?.webContents.send("event", { type: "toast", ...toastPayload }) : null) || OK,
+  toastReady: () => (toast?.ready(), OK),
 };
 
 const tourActions = {
@@ -1038,7 +980,7 @@ ipcMain.handle("action", async (event, name, payload) => {
         ? appearanceActions
         : from(hotkeyWin, event.sender)
           ? hotkeyActions
-          : from(toastWin, event.sender)
+          : from(toast?.window(), event.sender)
             ? toastActions
             : from(tourWin, event.sender)
           ? tourActions
@@ -1100,12 +1042,13 @@ app.on("before-quit", () => {
   settings?.flush();
   themeStopWatcher?.();
   globalShortcut.unregisterAll();
-  clearTimeout(toastTimer);
+  toast?.close();
 });
 app.on("window-all-closed", () => {});
 
 app.whenReady().then(async () => {
   settings = createSettingsStore(app.getPath("userData"));
+  toast = createToast({ preload, page: path.join(renderer, "toast.html"), themeId: () => currentTheme().theme });
   // 外部主题文件先读一次，卡片窗口创建时就要用对皮肤
   externalTheme = theme.readExternal(themeFile());
   await loadManualToken();
