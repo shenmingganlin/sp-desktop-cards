@@ -180,6 +180,9 @@ export function buildBoard(raw, opts = {}) {
       left: kids.length ? kids.filter((c) => !c.isDone).reduce((s, c) => s + left(c), 0) : left(t),
       // 有子任务的父任务不能直接计时，SP 会转去第一个子任务
       canTrack: !t.isDone && kids.length === 0,
+      // 重复任务的实例：换列只改这一条，明天的新实例仍按模板生成回原列。
+      // 不标出来的话，用户会以为「拖进进行中」生效了，第二天发现白做。
+      isRepeat: !!t.repeatCfgId,
       subDone: kids.filter((c) => c.isDone).length,
       subTotal: kids.length,
     };
@@ -248,7 +251,9 @@ export function buildBoard(raw, opts = {}) {
     counts: {
       total: columns.reduce((s, c) => s + c.count, 0),
       done: columns.reduce((s, c) => s + c.tasks.filter((t) => t.isDone).length, 0),
-      left: columns.reduce((s, c) => s + c.tasks.filter((t) => !t.isDone).reduce((n, t) => n + left(t), 0), 0),
+      // 用 row.left，不是 left(row)：left() 读的是 timeEstimate/timeSpent，
+      // 行对象上只有 estimate/spent，那样求和永远是 0，底栏的「预估剩余」从不显示。
+      left: columns.reduce((s, c) => s + c.tasks.filter((t) => !t.isDone).reduce((n, t) => n + t.left, 0), 0),
     },
   };
 }

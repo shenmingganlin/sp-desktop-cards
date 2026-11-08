@@ -250,6 +250,33 @@ test("两个预设的列定义和 SP 20 的默认看板一致", () => {
   }
 });
 
+test("底栏的「预估剩余」要真的算出来，不能永远 0", () => {
+  // 回归：counts.left 对 row 调 left()，但 row 上只有 estimate/spent，
+  // 没有 timeEstimate/timeSpent，left() 读到 undefined 得 0。
+  // 结果底栏的「预估剩余 X」从来不显示 —— 看起来像「这些任务都没估时」。
+  const v = build(withTags([
+    task({ id: "a", timeEstimate: 30 * MIN, timeSpent: 10 * MIN }),
+    task({ id: "b", timeEstimate: 60 * MIN }),
+    task({ id: "done", isDone: true, timeEstimate: 99 * MIN }),
+  ]));
+  assert.equal(v.counts.left, 80 * MIN, "20 + 60，已完成的不算");
+});
+
+test("重复任务的实例要在行上标出来，换列才知道只改了今天这一条", () => {
+  // SP 的重复任务每天生成一个新实例，实例有自己的 tagIds，模板另存一份。
+  // 看板换列只 PATCH 实例 —— 明天的新实例还回原列。
+  // 不在行上标出来，用户会以为「拖进进行中」这件事生效了，第二天发现白做。
+  const v = build(withTags([
+    task({ id: "once", title: "一次性" }),
+    task({ id: "daily", title: "每天", repeatCfgId: "cfg1" }),
+  ]));
+  const rows = v.columns.flatMap((c) => c.tasks);
+  const daily = rows.find((r) => r.id === "daily");
+  const once = rows.find((r) => r.id === "once");
+  assert.equal(daily.isRepeat, true);
+  assert.equal(once.isRepeat, false);
+});
+
 test("看板列不设「只看父任务」，子任务自己占一行；矩阵只看父任务", () => {
   // 两个预设在这点上不一样：SP 的看板面板 isParentTasksOnly=false，矩阵是 true。
   // 写反了矩阵会变成一板子的子任务，看板则会把拆解步骤全藏起来。

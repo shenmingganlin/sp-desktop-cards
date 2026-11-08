@@ -508,19 +508,37 @@ function cardMenu(type) {
  * 看板上「移到其他列」的菜单。只列目标列，点哪列就挪到哪列。
  * 当前列的标题写在第一行，免得用户忘了自己从哪儿挪的。
  */
+/** 列 id → 卡片上实际显示的名字。第四格在没人打过标时叫「未分类」。 */
+function boardColumnTitles() {
+  const view = raw ? cardView("boards") : null;
+  const map = new Map();
+  for (const col of view?.columns || []) map.set(col.id, col.title);
+  return map;
+}
+
 function boardMoveMenu(taskId, columnId) {
   const preset = settings.get().boardPreset;
   const def = BOARD_PRESETS[preset] || BOARD_PRESETS.kanban;
   const current = def.panels.find((p) => p.id === columnId);
   const task = (raw?.allTasks || []).find((t) => t.id === taskId);
   if (!current || !task) return Menu.buildFromTemplate([{ label: "任务或列已经不在了", enabled: false }]);
+  // 卡片上可能把第四格显示成「未分类」，菜单得说同一个名字。
+  // 用预设原名的话，用户卡片上看到「未分类」，菜单里却是「不紧急不重要」，对不上。
+  const titles = boardColumnTitles();
+  const currentTitle = titles.get(current.id) || current.title;
   const items = def.panels
     .filter((p) => p.id !== columnId)
-    .map((p) => ({ label: p.title, click: () => { void moveTaskToColumnAction(taskId, p.id); } }));
+    .map((p) => ({ label: titles.get(p.id) || p.title, click: () => { void moveTaskToColumnAction(taskId, p.id); } }));
+  // 重复任务的实例：换列只改这一天，明天的新实例还按模板生成。
+  // 不说这一句，用户会以为改的是整个重复规则，第二天发现又回原列了。
+  const repeatHint = task.repeatCfgId
+    ? [{ type: "separator" }, { label: "这是重复任务的一天实例，只改这一天", enabled: false }]
+    : [];
   return Menu.buildFromTemplate([
-    { label: `${task.title}（现在在「${current.title}」）`, enabled: false },
+    { label: `${task.title}（现在在「${currentTitle}」）`, enabled: false },
     { type: "separator" },
     ...items,
+    ...repeatHint,
   ]);
 }
 
@@ -535,8 +553,9 @@ async function moveTaskToColumnAction(taskId, columnId) {
   }
   const result = await runTaskAction(() => client.patchTask(taskId, patch));
   if (result.ok) {
+    // 用卡片上的名字，不是预设原名（第四格可能是「未分类」）
     const def = BOARD_PRESETS[settings.get().boardPreset] || BOARD_PRESETS.kanban;
-    const title = def.panels.find((p) => p.id === columnId)?.title || columnId;
+    const title = boardColumnTitles().get(columnId) || def.panels.find((p) => p.id === columnId)?.title || columnId;
     toast?.show({ text: `已移到「${title}」`, ms: 2500 });
   } else {
     toast?.show({ text: `没挪成：${result.message}`, ms: 4000 });

@@ -246,8 +246,18 @@
 .board-col-empty { padding: 2px 6px 4px; font-size: 11px; color: var(--faint); }
 /* 列里的行比今日卡片紧凑：一列可能塞十几条，行太高就只看得见三四条 */
 .board-row { min-height: 24px; padding: 1px 4px 1px 6px; font-size: 12px; }
-.board-row .text { font-size: 12px; }
-.board-row .meta { font-size: 10px; }
+/* 一列只有卡片宽度的三分之一，标题和 meta 抢地方。顺序很重要：
+   标题先拿够能读的宽度，剩下的才给 meta。所以 meta 设 min-width: 0
+   且可以缩到 0，而标题不给 min-width（给了就变成两边都挤）。 */
+.board-row .text { flex: 1 1 auto; font-size: 12px; }
+.board-row .meta {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+}
 .board-row .play { width: 18px; height: 18px; }
 /* 换列按钮：和 ▶ 同一个形状，平时藏起来，hover 才露出来 */
 .board-row .move {
@@ -261,6 +271,23 @@
 }
 .board-row:hover .move { visibility: visible; }
 .board-row .move:hover { background: var(--accent); color: var(--ink-on-accent); }
+/* 一行里有 ▶ 和 ⇄ 两个 18px 按钮，加上间距一共吃掉约 54px。
+   460px 的卡片分三列后每列只有 147px —— 等于三分之一强被两个平时
+   看不见的按钮占了，标题只剩三个字。
+   所以列里的按钮不占宽度：绝对定位到行右侧，hover 才显形。
+   标题于是能用满整行；按钮复用行尾那片空白，行本身有 min-height 撑着。 */
+.board-row { position: relative; padding-right: 2px; }
+.board-row .play,
+.board-row .move {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+}
+.board-row .move { right: 2px; }
+.board-row .play { right: 22px; }
+/* hover 时给按钮让出位置，标题让一点——但只在真正要看按钮的那一刻 */
+.board-row:hover { padding-right: 42px; }
+.board-row:hover .text { max-width: calc(100% - 42px); }
 /* 已完成的整行压暗划掉：重复任务每天生成一条同名任务，做完的不区分就像重复 bug */
 .board-row.done { opacity: 0.5; }
 .board-row.done .title { text-decoration: line-through; }

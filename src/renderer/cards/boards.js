@@ -16,12 +16,30 @@
     text.title = item.projectTitle ? `${item.projectTitle} › ${item.title}` : item.title;
     row.append(text);
 
-    const meta = [];
-    if (item.overdue) meta.push("逾期");
-    else if (item.dueAt) meta.push(W.minuteLabel(new Date(item.dueAt).getHours() * 60 + new Date(item.dueAt).getMinutes()));
-    if (item.subTotal) meta.push(`${item.subDone}/${item.subTotal}`);
-    else if (!item.isDone && item.left > 0) meta.push(W.duration(item.left));
-    if (meta.length) row.append(W.el("span", "meta", meta.join(" · ")));
+    // 一列只有卡片宽度的三分之一（460px 的卡片分三列，每列约 145px）。
+    // 「重复 · 逾期」这种组合一放，标题就只剩「机器人…」，等于认不出来。
+    // 所以：只留最要紧的一条，重复用单字符 ↻ 标在最前面。
+    // 完整信息在悬停提示里，不缺。
+    const bits = [];
+    // 用 ↻ 而不是「重复」：两个汉字在 145px 的列里太贵了
+    if (item.isRepeat) bits.push("↻");
+    if (item.overdue) bits.push("逾期");
+    // 时刻和剩余时长二选一：都有的话太挤，时刻更有信息量
+    else if (item.dueAt) bits.push(W.minuteLabel(new Date(item.dueAt).getHours() * 60 + new Date(item.dueAt).getMinutes()));
+    else if (item.subTotal) bits.push(`${item.subDone}/${item.subTotal}`);
+    else if (!item.isDone && item.left > 0) bits.push(W.duration(item.left));
+    if (bits.length) row.append(W.el("span", "meta", bits.join(" ")));
+    // 悬停时给全：列里塞不下，但想知道的人应该能问到
+    const full = [];
+    if (item.isRepeat) full.push("重复任务（换列只改这一天）");
+    if (item.overdue) full.push("逾期");
+    if (item.subTotal) full.push(`子任务 ${item.subDone}/${item.subTotal}`);
+    if (!item.isDone && item.left > 0) full.push(`剩余 ${W.duration(item.left)}`);
+    if (full.length) {
+      const meta = row.querySelector(".meta");
+      if (meta) meta.title = full.join(" · ");
+      else row.title = full.join(" · ");
+    }
     if (item.canTrack) {
       row.append(W.button("play", item.isCurrent ? "❚❚" : "▶", item.isCurrent ? "停止计时" : "开始计时", () =>
         (item.isCurrent ? W.act("stop") : W.act("start", { id: item.id }))));
@@ -30,7 +48,11 @@
     // 平时不挤占标题的宽度（一列可能十几条）。
     const others = columns.filter((c) => c.id !== column.id);
     if (others.length) {
-      row.append(W.button("move", "⇄", `移到其他列（现在在「${column.title}」）`, () =>
+      // 重复任务的实例换列只改今天这一条，明天仍按模板生成 —— 提示里要说清
+      const hint = item.isRepeat
+        ? `移到其他列（现在在「${column.title}」）；这是重复任务的一天实例，只改这一天`
+        : `移到其他列（现在在「${column.title}」）`;
+      row.append(W.button("move", "⇄", hint, () =>
         W.act("moveMenu", { id: item.id, columnId: column.id })));
     }
     return row;
@@ -51,7 +73,12 @@
       if (collapsed) return `${v.counts.total} 项`;
       return v.title;
     },
-    sig: (state) => state.view && [state.view.preset, state.view.columns, state.view.counts],
+    // missingTags 这些只影响提示条，但提示条也是卡片的一部分：
+    // 漏了它们，SP 里补建标签后「还没有 XX 标签」会一直挂着，说反了事实。
+    sig: (state) => state.view && [
+      state.view.preset, state.view.columns, state.view.counts,
+      state.view.missingTags, state.view.blankColumns,
+    ],
     render(body, state) {
       const v = state.view;
       if (!v) return;
