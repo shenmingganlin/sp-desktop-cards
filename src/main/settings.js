@@ -10,7 +10,7 @@ import { defaultKey, normalizeKey } from "./hotkey.js";
 import { DEFAULT_POMODORO } from "./pomodoro.js";
 import { normalizeSkin } from "./theme.js";
 
-export const CARD_TYPES = ["focus", "today", "planner", "schedule", "month", "stats", "list", "heatmap", "triage", "breakdown", "finishday", "boards"];
+export const CARD_TYPES = ["focus", "today", "planner", "schedule", "month", "stats", "list", "heatmap", "triage", "breakdown", "boards"];
 export const CARD_SIZE = {
   focus: { width: 320, height: 132 },
   today: { width: 320, height: 380 },
@@ -22,8 +22,6 @@ export const CARD_SIZE = {
   heatmap: { width: 340, height: 220 },
   triage: { width: 320, height: 400 },
   breakdown: { width: 320, height: 340 },
-  // 结束一天：四块内容，比「今日」再高一点
-  finishday: { width: 320, height: 440 },
   // 看板：矩阵是 2×2，给宽一点才不至于每格只放得下一两个字
   boards: { width: 460, height: 420 },
 };
@@ -41,7 +39,6 @@ const DEFAULT_CARDS = Object.freeze({
   heatmap: { visible: false, bounds: null, collapsed: false },
   triage: { visible: false, bounds: null, collapsed: false },
   breakdown: { visible: false, bounds: null, collapsed: false },
-  finishday: { visible: false, bounds: null, collapsed: false },
   boards: { visible: false, bounds: null, collapsed: false },
 });
 

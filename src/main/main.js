@@ -9,7 +9,6 @@ import { BOARD_PRESET_IDS, buildBoard } from "./boards.js";
 import { buildBreakdown, DIMENSIONS } from "./breakdown.js";
 import { addDays, addMonths, buildMonth, buildPlanner, buildSchedule } from "./calendar.js";
 import { CARD_TITLE, createCards } from "./cards.js";
-import { buildFinishDay } from "./finishday.js";
 import * as desktop from "./desktop.js";
 import { buildHeatmap } from "./heatmap.js";
 import * as hotkey from "./hotkey.js";
@@ -276,9 +275,6 @@ function cardView(type, todayView) {
   }
   if (type === "breakdown") {
     return cached(type, key, () => buildBreakdown(raw, { today: currentDay(), days: 7, by: s.breakdownBy }));
-  }
-  if (type === "finishday") {
-    return cached(type, key, () => buildFinishDay(raw, { today: currentDay(), now: raw.now, dayStartHour: s.dayStartHour }));
   }
   if (type === "boards") {
     return cached(type, key, () => buildBoard(raw, { preset: s.boardPreset, today: currentDay(), now: raw.now }));

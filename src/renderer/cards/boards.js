@@ -45,12 +45,14 @@
     render(body, state) {
       const v = state.view;
       if (!v) return;
-      if (v.needsSetup) {
-        const box = W.el("div", "empty");
-        box.append(W.el("p", "", `SP 里还没有 ${v.missingTagLabels.map((name) => `「${name}」`).join("、")} 标签。`));
-        box.append(W.el("p", "", "在 SP 里打开一次看板，SP 会自己建好；建好之后这张卡片就能分了。"));
-        body.append(box);
-        return;
+      // 缺标签只在上面挂一条提示，看板照画：SP 自己也是这么处理的。
+      // 整张卡换成提示，看起来就像「SP 里有数据但卡片没有」。
+      if (v.missingTags.length) {
+        const note = W.el("div", "board-note");
+        note.append(W.el("span", "", `SP 里还没有 ${v.missingTagLabels.map((n) => `「${n}」`).join("、")} 标签，${
+          v.blankColumns.length ? `「${v.columns.filter((c) => v.blankColumns.includes(c.id)).map((c) => c.title).join("」「")}」列会是空的。` : ""
+        }在 SP 里打开一次看板就会建好。`));
+        body.append(note);
       }
       if (!v.counts.total) {
         const empty = W.el("div", "empty");

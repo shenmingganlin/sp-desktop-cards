@@ -15,7 +15,7 @@ export const HEADER_HEIGHT = 34;
 export const CARD_TITLE = {
   focus: "专注", today: "今日", planner: "规划", schedule: "日程", month: "月历", stats: "统计",
   list: "清单", heatmap: "热力图", triage: "待整理", breakdown: "时间去向",
-  finishday: "结束一天", boards: "看板",
+  boards: "看板",
 };
 const MIN_SIZE = {
   focus: { width: 240, height: 96 },
@@ -28,7 +28,6 @@ const MIN_SIZE = {
   heatmap: { width: 260, height: 160 },
   triage: { width: 240, height: 180 },
   breakdown: { width: 240, height: 200 },
-  finishday: { width: 240, height: 200 },
   // 矩阵两列，再窄每格就放不下任务标题了
   boards: { width: 320, height: 200 },
 };

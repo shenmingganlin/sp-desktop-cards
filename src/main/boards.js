@@ -134,6 +134,10 @@ export function buildBoard(raw, opts = {}) {
     return { id: panel.id, title: panel.title, tasks, count: tasks.length };
   });
 
+  // 缺标签只是提示，不是错误：SP 自己的看板照样画出来，只在上面挂一条提示。
+  // 排除了一个不存在的标签 = 没有东西可排除，待办列照样列出全部任务；
+  // 要求一个不存在的标签 = 那一列确实空着，但那也是真话。
+  // 早先这里把整张卡换成「缺标签」，看起来像「我的看板没数据」，比实际严重得多。
   return {
     preset: presetKey,
     title: preset.title,
@@ -142,7 +146,10 @@ export function buildBoard(raw, opts = {}) {
     missingTags,
     // 卡片上要显示「缺哪个标签」，用 SP 里的名字，不是内部 id
     missingTagLabels: missingTags.map((id) => TAG_LABEL[id] || id),
-    needsSetup: missingTags.length > 0,
+    // 有标签缺失时，哪几列会因为缺标签而永远空着（excludedTagIds 那几列不受影响）
+    blankColumns: preset.panels
+      .filter((p) => p.includedTagIds.some((id) => missingTags.includes(id)))
+      .map((p) => p.id),
     counts: {
       total: columns.reduce((s, c) => s + c.count, 0),
       done: columns.reduce((s, c) => s + c.tasks.filter((t) => t.isDone).length, 0),

@@ -248,6 +248,63 @@ export function buildView(raw, opts = {}) {
       totalCount: done.length + undone.length + overdueTop.length,
       remaining,
     },
+    wrapUp: wrapUpView({ today, dayStartHour, undone, overdueTop, byId, childrenOf, spentToday, doneCount: done.length, remaining }),
+  };
+}
+
+/**
+ * 收尾账：收工时想知道「还剩哪些要接去明天」。
+ *
+ * 只补这一件事——用时、完成数、预估剩余今日卡片本来就有（stats），不另算一份，
+ * 两份口径迟早会漂。这里只回答「今天排了但没做完的是哪几条」。
+ *
+ * 逾期的任务不算在内：它们本来就欠着，卡片上半部分已经单独成组，
+ * 再列一遍会让人以为有两件事要处理。
+ */
+function wrapUpView({ today, dayStartHour, undone, overdueTop, byId, childrenOf, spentToday, doneCount, remaining }) {
+  // 完成率的分母按**计划字段**算，不按上面的分组：一个任务排了今天，
+  // 不管它现在是「今日」「逾期」还是「已完成」，它都算今天排的一项。
+  // 按分组算会把逾期的那几条漏掉，完成率就虚高了。
+  let plannedCount = 0;
+  let plannedDone = 0;
+  for (const t of byId.values()) {
+    const planned = isTimestamp(t.dueWithTime) ? localDay(t.dueWithTime, dayStartHour) === today : t.dueDay === today;
+    if (!planned) continue;
+    plannedCount += 1;
+    if (t.isDone) plannedDone += 1;
+  }
+
+  // 待接清单：今天排了、没做完、也不是逾期的。
+  // 逾期的卡片上半部分已经单独成组，再列一遍会让人以为有两件事要处理。
+  //
+  // 父任务和子任务都排了今天时只留父任务——这件事 buildView 上面已经做过了
+  // （子任务的父任务也在今日时，子任务不进 todayTasks 的顶层列表）。
+  // 这里不再重复过滤：重复一遍是死代码，看起来像在防什么，其实永远不触发。
+  const overdueIds = new Set(overdueTop.map((e) => e.id));
+  const leftOver = undone
+    .filter((e) => !overdueIds.has(e.id))
+    .map((e) => {
+      const t = byId.get(e.id);
+      const kids = childrenOf(t);
+      return {
+        id: e.id,
+        title: e.title,
+        parentTitle: e.parentTitle,
+        left: kids.length ? kids.filter((c) => !c.isDone).reduce((s, c) => s + left(c), 0) : left(t),
+        // 有子任务的父任务不能直接计时，SP 会转去第一个子任务
+        canTrack: kids.length === 0,
+      };
+    });
+
+  return {
+    leftOver,
+    // 没排期时返回 null：算成 0% 会像「一件事都没做」，其实是没安排。
+    ratio: plannedCount ? plannedDone / plannedCount : null,
+    // 和 stats 同源，不另算
+    leftEstimateMs: remaining,
+    spentMs: spentToday,
+    doneCount,
+    isEmpty: plannedCount === 0 && spentToday === 0 && doneCount === 0,
   };
 }
 

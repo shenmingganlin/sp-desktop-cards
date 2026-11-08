@@ -154,3 +154,68 @@ test("空数据不报错", () => {
   assert.deepEqual([v.overdue, v.list, v.done], [[], [], []]);
   assert.deepEqual(v.stats, { spentToday: 0, doneCount: 0, totalCount: 0, remaining: 0 });
 });
+
+// ── 收尾账（原「结束一天」卡片，折进今日卡片底栏）──
+// 今日卡片本来就有 spentToday / doneCount / remaining，缺的是「还剩哪些要接去明天」。
+// 这里只补这一件事，别把两套统计口径搞成两份。
+
+test("收尾账：计划了今天但没做完的，就是要接去明天的", () => {
+  const v = view();
+  assert.deepEqual(ids(v.wrapUp.leftOver), ["standup", "review", "report", "parent"]);
+  // 逾期的不在里面：它们本来就欠着，不是「今天没做完」。
+  // （逾期已经在卡片上半部分单独成组，再列一遍只会让人以为有两件事。）
+  assert.ok(!v.wrapUp.leftOver.some((t) => t.id === "early"));
+});
+
+test("收尾账：父任务和子任务都排了今天时，只接父任务一次", () => {
+  const data = sampleData();
+  data.allTasks.find((t) => t.id === "c3").dueDay = TODAY;
+  data.todayTasks = [...data.todayTasks, data.allTasks.find((t) => t.id === "c3")];
+  const v = buildView(data);
+  const wrapIds = ids(v.wrapUp.leftOver);
+  assert.ok(wrapIds.includes("parent"));
+  assert.ok(!wrapIds.includes("c3"), "父任务已经代表了它，子任务不单独接");
+});
+
+test("收尾账：父任务和子任务都排了今天时，只接父任务一次", () => {
+  // sampleData 里 c3 没排今天，这条路径测不到；手动把 c3 也排上今天
+  const data = sampleData();
+  data.allTasks.find((t) => t.id === "c3").dueDay = TODAY;
+  data.todayTasks = [...data.todayTasks, data.allTasks.find((t) => t.id === "c3")];
+  const v = buildView(data);
+  const wrapIds = ids(v.wrapUp.leftOver);
+  assert.ok(wrapIds.includes("parent"));
+  assert.ok(!wrapIds.includes("c3"), "父任务已经代表了它，子任务不单独接");
+});
+
+test("收尾账：做完了的不在待接清单里", () => {
+  const v = view();
+  assert.ok(!v.wrapUp.leftOver.some((t) => t.id === "finished"));
+});
+
+test("收尾账：完成率按「今天排的做完了几项」算，没排期时是 null 不是 0", () => {
+  // 样例里排了今天的有 6 项：standup / review / early / report / parent / finished。
+  // early 虽然过点了、被分到「逾期」，它仍然是今天排的一项，要算进分母。
+  // 按分组算会漏掉它，完成率就虚高成 1/5。
+  assert.equal(view().wrapUp.ratio, 1 / 6);
+  assert.equal(view({ todayTasks: [], allTasks: [], tags: [] }).wrapUp.ratio, null);
+  // 排了但一项没做完是 0，和「没排期」要分开
+  const none = view({ todayTasks: [task({ id: "x", dueDay: TODAY })], allTasks: [task({ id: "x", dueDay: TODAY })], tags: [] });
+  assert.equal(none.wrapUp.ratio, 0);
+});
+
+test("收尾账：预估剩余和今日卡片原有的 remaining 是同一个数", () => {
+  const v = view();
+  assert.equal(v.wrapUp.leftEstimateMs, v.stats.remaining);
+});
+
+test("收尾账：今天什么都没排、也没用时，不算收尾（不显示那块）", () => {
+  const v = buildView({ todayTasks: [], allTasks: [task({ id: "later", dueDay: "2026-12-01" })], tags: [], now: NOW });
+  assert.equal(v.wrapUp.isEmpty, true);
+  // 口径跟今日卡片一致：今天排了、今天做完的才算。没排今天的事今日卡片本来也不显示，
+  // 收尾条要是单独把它们算进来，卡片上下两截就对不上了。
+  const notToday = buildView({ todayTasks: [], allTasks: [task({ id: "a", isDone: true, doneOn: NOW })], tags: [], now: NOW });
+  assert.equal(notToday.wrapUp.isEmpty, true);
+  const plannedDone = buildView({ todayTasks: [task({ id: "b", dueDay: TODAY, isDone: true, doneOn: NOW })], allTasks: [task({ id: "b", dueDay: TODAY, isDone: true, doneOn: NOW })], tags: [], now: NOW });
+  assert.equal(plannedDone.wrapUp.isEmpty, false);
+});

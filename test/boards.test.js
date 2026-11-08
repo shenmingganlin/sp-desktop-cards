@@ -77,20 +77,37 @@ test("艾森豪威尔矩阵：按 SP 的默认看板只看父任务，子任务�
   assert.deepEqual(ids(v.columns[2].tasks), []);
 });
 
-test("缺标签时说清楚缺哪几个，不静默显示成空板", () => {
-  // 这两个标签是 SP 第一次打开看板时才建的。没有它们，整个矩阵会掉进「不紧急不重要」，
-  // 看起来像「我没有任何重要的事」——比报错更容易误导。
-  const v = build({ allTasks: [task({ id: "a" })], projects: [], tags: [] }, "eisenhower");
-  assert.deepEqual(v.missingTags, [EM_URGENT, EM_IMPORTANT]);
-  assert.equal(v.needsSetup, true);
-  // 看板也一样：没有 in-progress 标签，进行中列永远是空的
-  assert.deepEqual(build({ allTasks: [], projects: [], tags: [] }).missingTags, [KANBAN_IN_PROGRESS]);
+test("缺标签只挂提示，看板照样把任务分出来", () => {
+  // 回归：早先缺标签时把整张卡换成「缺标签」，用户看到的是「SP 里有数据但卡片没有」。
+  // SP 自己不是这么做的 —— 它在看板上方挂一条提示，看板照常渲染。
+  const v = build({ allTasks: [task({ id: "a" }), task({ id: "b", isDone: true })], projects: [], tags: [] });
+  assert.deepEqual(v.missingTags, [KANBAN_IN_PROGRESS]);
+  assert.deepEqual(ids(v.columns[0].tasks), ["a"]);
+  assert.deepEqual(ids(v.columns[2].tasks), ["b"]);
+  assert.equal(v.counts.total, 2, "数据要照常出来");
 });
 
-test("标签都在时不报缺标签", () => {
+test("缺的标签只影响包含它的那一列，排除它的列不受影响", () => {
+  // 待办列是 excludedTagIds=[in-progress]：标签不存在 = 没有东西可排除，全部照列。
+  // 进行中列是 includedTagIds=[in-progress]：标签不存在，这列确实永远空着，要说清楚。
+  const v = build({ allTasks: [task({ id: "a" })], projects: [], tags: [] });
+  assert.deepEqual(v.blankColumns, ["IN_PROGRESS"]);
+  assert.ok(!v.blankColumns.includes("TODO"));
+});
+
+test("艾森豪威尔缺标签时四个象限都会空，提示要说明白", () => {
+  const v = build({ allTasks: [task({ id: "a" })], projects: [], tags: [] }, "eisenhower");
+  assert.deepEqual(v.missingTags, [EM_URGENT, EM_IMPORTANT]);
+  // 除了「不紧急不重要」，另外三个象限都靠这两个标签
+  assert.deepEqual(v.blankColumns, ["URGENT_AND_IMPORTANT", "NOT_URGENT_AND_IMPORTANT", "URGENT_AND_NOT_IMPORTANT"]);
+  // 但列本身照画：任务掉进「不紧急不重要」是真话，不是 bug
+  assert.deepEqual(ids(v.columns[3].tasks), ["a"]);
+});
+
+test("标签都在时不报缺标签，也没有空列提示", () => {
   const v = build(withTags([task({ id: "a" })]), "eisenhower");
   assert.deepEqual(v.missingTags, []);
-  assert.equal(v.needsSetup, false);
+  assert.deepEqual(v.blankColumns, []);
 });
 
 test("列内排序：逾期的在前，然后按计划时刻，最后按 SP 里的顺序", () => {
