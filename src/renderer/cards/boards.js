@@ -1,0 +1,83 @@
+// boards.js — 看板卡片：把任务按列摊开，一眼看出积压在哪一列。
+// 数据由主进程的 buildBoard 整理好；列规则照 SP 20 自带的默认看板。
+"use strict";
+
+(() => {
+  /** 一行：和 card.js 的 taskRow 同一个样子，但没有勾选框 —— 看板上主要是看分布。 */
+  function boardRow(item) {
+    const row = W.el("div", "row board-row");
+    if (item.isCurrent) row.classList.add("current");
+    if (item.overdue) row.classList.add("overdue");
+    const text = W.el("div", "text");
+    text.append(W.el("span", "title", item.title));
+    text.title = item.projectTitle ? `${item.projectTitle} › ${item.title}` : item.title;
+    row.append(text);
+
+    const meta = [];
+    if (item.overdue) meta.push("逾期");
+    else if (item.dueAt) meta.push(W.minuteLabel(new Date(item.dueAt).getHours() * 60 + new Date(item.dueAt).getMinutes()));
+    if (item.subTotal) meta.push(`${item.subDone}/${item.subTotal}`);
+    else if (!item.isDone && item.left > 0) meta.push(W.duration(item.left));
+    if (meta.length) row.append(W.el("span", "meta", meta.join(" · ")));
+    if (item.canTrack) {
+      row.append(W.button("play", item.isCurrent ? "❚❚" : "▶", item.isCurrent ? "停止计时" : "开始计时", () =>
+        (item.isCurrent ? W.act("stop") : W.act("start", { id: item.id }))));
+    }
+    return row;
+  }
+
+  W.define("boards", {
+    title: "看板",
+    tools: (state) => {
+      const v = state.view;
+      if (!v) return [];
+      const other = v.preset === "eisenhower" ? "kanban" : "eisenhower";
+      const label = other === "kanban" ? "看板" : "矩阵";
+      return [{ text: label, wide: true, title: `换成${label}`, click: () => W.act("setBoardPreset", { preset: other }) }];
+    },
+    sub(state, collapsed) {
+      const v = state.view;
+      if (!v) return "";
+      if (collapsed) return `${v.counts.total} 项`;
+      return v.title;
+    },
+    sig: (state) => state.view && [state.view.preset, state.view.columns, state.view.counts],
+    render(body, state) {
+      const v = state.view;
+      if (!v) return;
+      if (v.needsSetup) {
+        const box = W.el("div", "empty");
+        box.append(W.el("p", "", `SP 里还没有 ${v.missingTagLabels.map((name) => `「${name}」`).join("、")} 标签。`));
+        box.append(W.el("p", "", "在 SP 里打开一次看板，SP 会自己建好；建好之后这张卡片就能分了。"));
+        body.append(box);
+        return;
+      }
+      if (!v.counts.total) {
+        const empty = W.el("div", "empty");
+        empty.append(W.el("p", "", v.preset === "eisenhower" ? "还没有任务挂上 urgent / important 标签。" : "看板是空的。"));
+        body.append(empty);
+        return;
+      }
+      const grid = W.el("div", `board board-${v.cols}`);
+      for (const col of v.columns) {
+        const box = W.el("div", "board-col");
+        const head = W.el("div", "board-col-head");
+        head.append(W.el("span", "board-col-title", col.title));
+        head.append(W.el("span", "board-col-count", String(col.count)));
+        box.append(head);
+        if (!col.count) box.append(W.el("div", "board-col-empty", "—"));
+        for (const item of col.tasks) box.append(boardRow(item));
+        grid.append(box);
+      }
+      body.append(grid);
+    },
+    foot(state) {
+      const v = state.view;
+      if (!v?.counts.total) return "";
+      const parts = [`${v.counts.total} 项`];
+      if (v.counts.done) parts.push(`已完成 ${v.counts.done}`);
+      if (v.counts.left) parts.push(`预估剩余 ${W.duration(v.counts.left)}`);
+      return parts.join(" · ");
+    },
+  });
+})();

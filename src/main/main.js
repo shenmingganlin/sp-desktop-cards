@@ -5,9 +5,11 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { BOARD_PRESET_IDS, buildBoard } from "./boards.js";
 import { buildBreakdown, DIMENSIONS } from "./breakdown.js";
 import { addDays, addMonths, buildMonth, buildPlanner, buildSchedule } from "./calendar.js";
 import { CARD_TITLE, createCards } from "./cards.js";
+import { buildFinishDay } from "./finishday.js";
 import * as desktop from "./desktop.js";
 import { buildHeatmap } from "./heatmap.js";
 import * as hotkey from "./hotkey.js";
@@ -252,7 +254,8 @@ function cardView(type, todayView) {
   const s = settings.get();
   const key = JSON.stringify([raw.listsAt, raw.current?.id ?? null, s.dayStartHour, currentDay(), s.showDone, type === "planner" && s.plannerDays,
     type === "schedule" && [ui.scheduleDay, s.scheduleStartHour, s.scheduleEndHour], type === "month" && [ui.month, ui.selected],
-    type === "list" && s.listSource, type === "breakdown" && s.breakdownBy, type === "heatmap" && s.heatmapWeeks]);
+    type === "list" && s.listSource, type === "breakdown" && s.breakdownBy, type === "heatmap" && s.heatmapWeeks,
+    type === "boards" && s.boardPreset]);
   if (type === "planner") return cached(type, key, () => buildPlanner(raw, { dayStartHour: s.dayStartHour, days: s.plannerDays }));
   if (type === "schedule") {
     return cached(type, key, () => buildSchedule(raw, {
@@ -273,6 +276,12 @@ function cardView(type, todayView) {
   }
   if (type === "breakdown") {
     return cached(type, key, () => buildBreakdown(raw, { today: currentDay(), days: 7, by: s.breakdownBy }));
+  }
+  if (type === "finishday") {
+    return cached(type, key, () => buildFinishDay(raw, { today: currentDay(), now: raw.now, dayStartHour: s.dayStartHour }));
+  }
+  if (type === "boards") {
+    return cached(type, key, () => buildBoard(raw, { preset: s.boardPreset, today: currentDay(), now: raw.now }));
   }
   return cached(type, key, () => buildMonth(raw, { dayStartHour: s.dayStartHour, month: ui.month, selected: ui.selected }));
 }
@@ -857,7 +866,7 @@ const isId = (v) => typeof v === "string" && v.length > 0 && v.length < 200;
 // 设置窗口能改的字段；卡片位置、令牌、番茄统计走各自的通道
 const EDITABLE = ["mode", "theme", "locked", "opacity", "openAtLogin", "upcomingMinutes", "dayStartHour", "showDone", "plannerDays",
   "scheduleStartHour", "scheduleEndHour", "quickAddProjectId", "pomodoro", "autoUpdate", "breakdownBy", "heatmapWeeks", "listSource",
-  "clickThrough"];
+  "clickThrough", "boardPreset"];
 const pick = (obj, keys) => Object.fromEntries(keys.filter((k) => Object.hasOwn(obj, k)).map((k) => [k, obj[k]]));
 
 async function runTaskAction(fn) {
@@ -922,8 +931,12 @@ const cardActions = {
   listMenu: (_p, type) => (cards.popup(type, listMenu()), OK),
   // 时间去向卡片：标签/项目之间切换
   setBreakdownBy: ({ by }) => (DIMENSIONS.includes(by) ? (saveSettings({ breakdownBy: by }), OK) : null),
+  // 看板卡片：三列看板 / 四象限矩阵之间切换
+  setBoardPreset: ({ preset }) => (BOARD_PRESET_IDS.includes(preset) ? (saveSettings({ boardPreset: preset }), OK) : null),
   // 待整理卡片：把任务排到今天。dueWithTime 要一起清掉，不然 SP 里还按原来的钟点算。
   scheduleToday: ({ id }) => (isId(id) ? runTaskAction(() => client.patchTask(id, { dueDay: currentDay(), dueWithTime: null })) : null),
+  // 结束一天卡片：把没做完的排到明天。和「排到今天」同一条道理，dueWithTime 一起清掉。
+  scheduleTomorrow: ({ id }) => (isId(id) ? runTaskAction(() => client.patchTask(id, { dueDay: addDays(currentDay(), 1), dueWithTime: null })) : null),
   ...pomoActions,
 };
 

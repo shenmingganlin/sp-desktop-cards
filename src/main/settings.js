@@ -10,7 +10,7 @@ import { defaultKey, normalizeKey } from "./hotkey.js";
 import { DEFAULT_POMODORO } from "./pomodoro.js";
 import { normalizeSkin } from "./theme.js";
 
-export const CARD_TYPES = ["focus", "today", "planner", "schedule", "month", "stats", "list", "heatmap", "triage", "breakdown"];
+export const CARD_TYPES = ["focus", "today", "planner", "schedule", "month", "stats", "list", "heatmap", "triage", "breakdown", "finishday", "boards"];
 export const CARD_SIZE = {
   focus: { width: 320, height: 132 },
   today: { width: 320, height: 380 },
@@ -22,6 +22,10 @@ export const CARD_SIZE = {
   heatmap: { width: 340, height: 220 },
   triage: { width: 320, height: 400 },
   breakdown: { width: 320, height: 340 },
+  // 结束一天：四块内容，比「今日」再高一点
+  finishday: { width: 320, height: 440 },
+  // 看板：矩阵是 2×2，给宽一点才不至于每格只放得下一两个字
+  boards: { width: 460, height: 420 },
 };
 export const MODES = ["top", "normal", "desktop"];
 export const GAP = 6; // 拼在一起的卡片之间的间距
@@ -37,6 +41,8 @@ const DEFAULT_CARDS = Object.freeze({
   heatmap: { visible: false, bounds: null, collapsed: false },
   triage: { visible: false, bounds: null, collapsed: false },
   breakdown: { visible: false, bounds: null, collapsed: false },
+  finishday: { visible: false, bounds: null, collapsed: false },
+  boards: { visible: false, bounds: null, collapsed: false },
 });
 
 export const DEFAULTS = Object.freeze({
@@ -65,6 +71,7 @@ export const DEFAULTS = Object.freeze({
   lastUpdateCheck: 0, // 上次检查更新的时间戳，一天最多自动查一次
   listSource: { kind: "project", id: "" }, // 清单卡片看哪个项目/标签；id 为空表示用第一个
   breakdownBy: "tag", // 时间去向卡片按什么分摊：tag 标签 / project 项目
+  boardPreset: "kanban", // 看板卡片用哪个预设：kanban 三列看板 / eisenhower 四象限矩阵
   heatmapWeeks: 13, // 热力图卡片显示几周
   clickThrough: false, // 不挡点击：鼠标落在卡片上时穿透到下面（默认关）
   clickThroughKey: defaultKey(), // 切换「不挡点击」的全局快捷键
@@ -158,6 +165,8 @@ export function sanitize(input, base = DEFAULTS) {
     s.listSource = { kind: ls.kind, id: ls.id };
   }
   if (input.breakdownBy === "tag" || input.breakdownBy === "project") s.breakdownBy = input.breakdownBy;
+  // 看板预设只收认识的：拼错的写进去会让卡片一直显示默认的那个，用户以为切换坏了
+  if (input.boardPreset === "kanban" || input.boardPreset === "eisenhower") s.boardPreset = input.boardPreset;
   s.heatmapWeeks = clampInt(input.heatmapWeeks, 4, 53, s.heatmapWeeks);
   if (input.pomodoroSession === null || (input.pomodoroSession && typeof input.pomodoroSession === "object")) {
     const { phase, status, endsAt, remainingMs, durationMs, taskId } = input.pomodoroSession || {};

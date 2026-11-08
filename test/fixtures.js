@@ -51,7 +51,8 @@ export function sampleData(base = NOW) {
     task({ id: "c2", title: "写更新说明", parentId: "parent", tagIds: ["work", "release"], timeEstimate: 30 * MIN, timeSpent: 20 * MIN, timeSpentOnDay: { [TODAY]: 5 * MIN, [day(-1)]: 15 * MIN } }),
     task({ id: "c3", title: "打包", parentId: "parent", timeEstimate: 30 * MIN }),
     // 晨练挂了两个标签：时间去向按标签看时它会被算两次，用来验证卡片的说明
-    task({ id: "finished", title: "晨练", dueDay: TODAY, tagIds: ["health", "routine"], isDone: true, timeSpent: 30 * MIN, timeSpentOnDay: { [TODAY]: 30 * MIN } }),
+    // doneOn 是完成时刻：结束一天卡片按它判断「今天做完了什么」
+    task({ id: "finished", title: "晨练", dueDay: TODAY, tagIds: ["health", "routine"], isDone: true, doneOn: rel(30), timeSpent: 30 * MIN, timeSpentOnDay: { [TODAY]: 30 * MIN } }),
     task({ id: "late", title: "交水电费", dueDay: day(-2) }), // 两天前
     task({ id: "yday", title: "给老王回电话", dueDay: day(-1), dueWithTime: at(16, 30, -1) }),
     task({ id: "deadline", title: "报销", deadlineDay: day(-1) }),

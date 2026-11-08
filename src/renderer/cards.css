@@ -193,3 +193,58 @@
 .bd-row.other .bd-title { color: var(--dim); }
 .bd-row:hover .bd-fill { opacity: 1; }
 .bd-note { padding: 6px 12px 8px; font-size: 10px; line-height: 1.45; color: var(--mute); }
+
+/* ── 结束一天 ── */
+/* 四块内容各占一段，段与段之间用细线分开；没内容的那块整段不画（render 里就不加） */
+.fd-row .text { flex: 1; min-width: 0; }
+.fd-row.done .title { color: var(--dim); }
+.fd-row.done .mark { color: var(--ok); font-size: 12px; }
+.fd-row.worked .meta { color: var(--focus); }
+.fd-row.left .link { flex: none; opacity: 0; }
+.fd-row.left:hover .link { opacity: 1; }
+.fd-row.left .play { flex: none; }
+
+/* ── 看板 ── */
+/* 列等宽铺满：矩阵是 2×2，看板是 3 列，都由 board-2 / board-3 决定。
+   列自己滚动，整张卡片不跟着横向滚 —— 拖宽卡片时列跟着变宽，任务标题能看全。 */
+.board {
+  display: grid;
+  gap: 4px;
+  height: 100%;
+  padding: 4px 6px 6px;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+.board-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr)); }
+.board-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.board-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  border-radius: var(--radius-sm);
+  background: var(--bg-2);
+}
+.board-col::-webkit-scrollbar { width: 4px; }
+.board-col::-webkit-scrollbar-thumb { background: var(--bg-scroll); border-radius: var(--radius-sm); }
+.board-col-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 4px 6px 3px;
+  background: var(--bg-2);
+  font-size: 11px;
+  color: var(--dim);
+}
+.board-col-title { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.board-col-count { flex: none; font-variant-numeric: tabular-nums; color: var(--mute); }
+.board-col-empty { padding: 2px 6px 4px; font-size: 11px; color: var(--faint); }
+/* 列里的行比今日卡片紧凑：一列可能塞十几条，行太高就只看得见三四条 */
+.board-row { min-height: 24px; padding: 1px 4px 1px 6px; font-size: 12px; }
+.board-row .text { font-size: 12px; }
+.board-row .meta { font-size: 10px; }
+.board-row .play { width: 18px; height: 18px; }

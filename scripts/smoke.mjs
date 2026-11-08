@@ -28,11 +28,19 @@ const ALL = {
     heatmap: card(1670, 40, 340, 220),
     triage: card(1670, 266, 320, 400),
     breakdown: card(1344, 470, 320, 340),
+    finishday: card(40, 584, 320, 440),
+    boards: card(366, 584, 460, 420),
   },
 };
 
 async function run(name, { mutate, settings = ALL, extraEnv = {}, expect }) {
   const data = sampleData(Date.now());
+  // 看板/矩阵要用的三个默认标签是 SP 第一次打开看板时才建的；假 SP 里补上，让卡片走到分列那条路
+  data.tags = [...data.tags,
+    { id: "KANBAN_IN_PROGRESS", title: "in-progress", taskIds: ["standup"] },
+    { id: "EM_URGENT", title: "urgent", taskIds: [] },
+    { id: "EM_IMPORTANT", title: "important", taskIds: [] }];
+  data.allTasks = data.allTasks.map((t) => (t.id === "standup" ? { ...t, tagIds: ["KANBAN_IN_PROGRESS"] } : t.id === "review" ? { ...t, tagIds: [...t.tagIds, "EM_URGENT", "EM_IMPORTANT"] } : t));
   mutate?.(data);
   const sp = await startFakeSp({ data });
   const dir = path.join(out, name);
@@ -67,12 +75,17 @@ const results = [];
 results.push(await run("all", {
   mutate: (d) => (d.current = d.allTasks.find((t) => t.id === "c2")),
   extraEnv: { SPW_SMOKE_SETTINGS: "1" },
-  expect: [...PNG("focus", "today", "planner", "schedule", "month", "list", "heatmap", "triage", "breakdown"), "settings.png"],
+  expect: [...PNG("focus", "today", "planner", "schedule", "month", "list", "heatmap", "triage", "breakdown", "finishday", "boards"), "settings.png"],
 }));
 // 0.1.0 的设置：迁移后只有「专注」和「今日」
 results.push(await run("migrate", {
   settings: { bounds: { x: 100, y: 100, width: 320, height: 470 }, opacity: 0.95 },
   expect: PNG("focus", "today"),
+}));
+// 矩阵：同一份数据切到四象限
+results.push(await run("boards-matrix", {
+  settings: { version: 2, boardPreset: "eisenhower", cards: { boards: ALL.cards.boards } },
+  expect: PNG("boards"),
 }));
 results.push(await run("sp-focus", {
   mutate: (d) => {
@@ -88,7 +101,7 @@ results.push(await run("empty", {
     d.todayTasks = [];
     d.repeatCfgs = [];
   },
-  expect: PNG("focus", "today", "planner", "schedule", "month", "list", "heatmap", "triage", "breakdown"),
+  expect: PNG("focus", "today", "planner", "schedule", "month", "list", "heatmap", "triage", "breakdown", "finishday", "boards"),
 }));
 
 // 改名搬家：老目录（SP 今日小窗）和新目录（SP 桌面卡片）并排放在临时目录里，
