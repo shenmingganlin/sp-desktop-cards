@@ -364,6 +364,33 @@ test("改名搬家：老目录的设置第一次启动时整个搬过来，第�
   fs.rmSync(roam, { recursive: true, force: true });
 });
 
+test("改名搬家：中间那次的乱码目录也要认，设置不能因为改过两次名就丢", () => {
+  // 真实踩到的：0.1.0 叫「SP 今日小窗」，0.2.3 改名前包了一次乱码
+  // （「SP 妗岄潰鍗＄墖」），后来才修成「SP 桌面卡片」。
+  // 只认一个 LEGACY_DIR 的话，乱码那次留下的设置永远搬不过来，
+  // 老目录也永远删不掉 —— 用户机器上白占 8 MB。
+  const roam = fs.mkdtempSync(path.join(os.tmpdir(), "spw-home-"));
+  const mojibake = path.join(roam, "SP 妗岄潰鍗＄墖");
+  const now = path.join(roam, "SP 桌面卡片");
+  fs.mkdirSync(mojibake);
+  fs.writeFileSync(path.join(mojibake, "settings.json"), '{"opacity":0.42}');
+  assert.equal(adoptUserData(now), "moved");
+  assert.equal(JSON.parse(fs.readFileSync(path.join(now, "settings.json"), "utf8")).opacity, 0.42);
+});
+
+test("改名搬家：按新旧顺序找，最近的旧名字优先", () => {
+  // 两个旧目录都在时，用更近的那个（乱码名比「SP 今日小窗」晚），
+  // 不能随便挑一个 —— 越近的设置越接近用户最后的样子。
+  const roam = fs.mkdtempSync(path.join(os.tmpdir(), "spw-home-"));
+  fs.mkdirSync(path.join(roam, "SP 今日小窗"));
+  fs.writeFileSync(path.join(roam, "SP 今日小窗", "settings.json"), '{"opacity":0.11}');
+  fs.mkdirSync(path.join(roam, "SP 妗岄潰鍗＄墖"));
+  fs.writeFileSync(path.join(roam, "SP 妗岄潰鍗＄墖", "settings.json"), '{"opacity":0.77}');
+  const now = path.join(roam, "SP 桌面卡片");
+  assert.equal(adoptUserData(now), "moved");
+  assert.equal(JSON.parse(fs.readFileSync(path.join(now, "settings.json"), "utf8")).opacity, 0.77);
+});
+
 test("改名搬家：新目录已经有设置就不动，老版本没有设置也不动", () => {
   const roam = fs.mkdtempSync(path.join(os.tmpdir(), "spw-home-"));
   const old = path.join(roam, "SP 今日小窗");

@@ -1,24 +1,34 @@
-// usermigrate.js — 0.2.2 及以前程序叫「SP 今日小窗」，设置存在 %APPDATA%\SP 今日小窗。
-// 0.2.3 改名后 userData 变成 %APPDATA%\SP 桌面卡片，新目录是空的：不搬的话老用户一升级，
-// 设置、卡片位置、令牌全丢。首次启动时把老目录搬过来（改名而不是复制，老的卸载时一起删干净）。
+// usermigrate.js — 程序改过两次名，每次改名 userData 目录都跟着变，新目录是空的：
+// 不搬的话老用户一升级，设置、卡片位置、令牌全丢。
+//   0.2.2 及以前  %APPDATA%\SP 今日小窗
+//   0.2.3        %APPDATA%\SP 妗岄潰鍗＄墖   ← 打包时中文被按 GBK 解了一遍，是这个乱码名
+//   现在          %APPDATA%\SP 桌面卡片
+// 首次启动时把老目录搬过来（改名而不是复制，老的卸载时一起删干净）。
 // 单独放一个文件是为了能脱离 Electron 单测。
 
 import fs from "node:fs";
 import path from "node:path";
 
-export const LEGACY_DIR = "SP 今日小窗";
+/** 更早的目录名，从旧到新。多个都在时用最新的那个。 */
+export const LEGACY_DIRS = ["SP 今日小窗", "SP 妗岄潰鍗＄墖"];
+/** 兼容老名字：调用方以前传单个字符串。 */
+export const LEGACY_DIR = LEGACY_DIRS[0];
 
 /**
  * dataDir 是新的 userData 目录。返回 "moved"（整个目录改名过来）、"copied"（跨盘或占用，逐个复制）、
  * "kept"（已经有自己的设置，或者老目录没有设置，什么也没做）。出错时返回 "failed"，不抛异常。
  */
-export function adoptUserData(dataDir, { legacyName = LEGACY_DIR } = {}) {
+export function adoptUserData(dataDir, { legacyName, legacyNames = LEGACY_DIRS } = {}) {
   try {
-    const old = path.join(path.dirname(dataDir), legacyName);
-    if (old.toLowerCase() === dataDir.toLowerCase()) return "kept";
-    // 已经有自己的设置了（升级过一次），或者老版本没留下设置：什么都不做
+    // 两个旧目录可能同时在（改过两次名的用户机器上就是这样）。从新往旧找，
+    // 找到第一个带设置的：越近的越接近用户最后的样子。
+    const candidates = legacyName ? [legacyName] : [...legacyNames].reverse();
+    const old = candidates
+      .map((name) => path.join(path.dirname(dataDir), name))
+      .find((dir) => dir.toLowerCase() !== dataDir.toLowerCase() && fs.existsSync(path.join(dir, "settings.json")));
+    // 已经有自己的设置了（升级过一次），或者哪个旧目录都没留下设置：什么都不做
     if (fs.existsSync(path.join(dataDir, "settings.json"))) return "kept";
-    if (!fs.existsSync(path.join(old, "settings.json"))) return "kept";
+    if (!old) return "kept";
     // 新目录可能已经被 Chromium 建好了，空的就删掉好改名
     if (fs.existsSync(dataDir) && fs.readdirSync(dataDir).length === 0) fs.rmdirSync(dataDir);
     if (!fs.existsSync(dataDir)) {
