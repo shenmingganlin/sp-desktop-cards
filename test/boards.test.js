@@ -104,10 +104,104 @@ test("艾森豪威尔缺标签时四个象限都会空，提示要说明白", ()
   assert.deepEqual(ids(v.columns[3].tasks), ["a"]);
 });
 
+test("矩阵缺标签时，掉进「不紧急不重要」的格子要标成「未分类」", () => {
+  // 回归：SP 里还没有 urgent/important 标签时，全部任务都满足「两个标签都没有」，
+  // 于是齐刷刷掉进第四格。格名写着「不紧急不重要」——那是在替用户下判断，
+  // 而他从来没标过任何一条。这一格这时其实是「还没分类」。
+  const v = build({ allTasks: [task({ id: "a" }), task({ id: "b" })], projects: [], tags: [] }, "eisenhower");
+  assert.equal(v.columns[3].title, "未分类", "缺标签时第四格不能叫「不紧急不重要」");
+  assert.equal(v.columns[3].isUntaggedBucket, true);
+  // 另外三格的标题不动：它们确实是空的，标题没骗人
+  assert.equal(v.columns[0].title, "重要且紧急");
+});
+
+test("标签建好了但一条都没标过，第四格照样叫「未分类」", () => {
+  // 真实踩到的情形：标签建出来了，可 48 条任务全没打过标。
+  // 第四格照样装满全部任务，写「不紧急不重要」还是替用户下判断。
+  const v = build(withTags([task({ id: "a" }), task({ id: "b" })]), "eisenhower");
+  assert.deepEqual(v.missingTags, [], "标签是齐的");
+  assert.equal(v.columns[3].title, "未分类");
+  assert.equal(v.columns[3].isUntaggedBucket, true);
+});
+
+test("开始分类以后，第四格恢复 SP 的名字", () => {
+  // 只要有一条任务带上 urgent 或 important，说明分类在起作用，
+  // 剩下的没带标签的落进第四格就是 SP 自己的规则，照 SP 的名字叫。
+  const v = build(withTags([
+    task({ id: "a", tagIds: [EM_IMPORTANT] }),
+    task({ id: "b" }),
+  ]), "eisenhower");
+  assert.equal(v.columns[1].title, "重要不紧急");
+  assert.deepEqual(ids(v.columns[1].tasks), ["a"]);
+  assert.equal(v.columns[3].title, "不紧急不重要");
+  assert.equal(v.columns[3].isUntaggedBucket, false);
+  assert.deepEqual(ids(v.columns[3].tasks), ["b"]);
+});
+
+test("矩阵只缺一个标签、但另一个在用，第四格还是「不紧急不重要」", () => {
+  // 只缺 urgent：带 important 的任务仍能分出「重要不紧急」，分类在起作用。
+  const v = build({
+    allTasks: [task({ id: "a", tagIds: [EM_IMPORTANT] }), task({ id: "b" })],
+    projects: [],
+    tags: [{ id: EM_IMPORTANT, title: "important", taskIds: [] }],
+  }, "eisenhower");
+  assert.deepEqual(v.missingTags, [EM_URGENT]);
+  assert.equal(v.columns[3].title, "不紧急不重要");
+  assert.equal(v.columns[3].isUntaggedBucket, false);
+});
+
 test("标签都在时不报缺标签，也没有空列提示", () => {
   const v = build(withTags([task({ id: "a" })]), "eisenhower");
   assert.deepEqual(v.missingTags, []);
   assert.deepEqual(v.blankColumns, []);
+});
+
+test("标签 ID 不是 SP 写死的那种时，按名字认出来", () => {
+  // 用户可能从 SP 界面或插件 API 建同名标签，ID 就是随机的。
+  // 只按写死 ID 匹配的话，看板会显示「没有 in-progress 标签」并把列留空，
+  // 而用户明明建了 —— 这正是「SP 里有数据但卡片没有」的另一种形态。
+  const v = build({
+    allTasks: [
+      task({ id: "todo" }),
+      task({ id: "doing", tagIds: ["random-id-1"] }),
+      task({ id: "done", isDone: true }),
+    ],
+    projects: [],
+    tags: [{ id: "random-id-1", title: "in-progress", taskIds: [] }],
+  });
+  assert.deepEqual(v.missingTags, [], "名字对上了就不算缺");
+  assert.deepEqual(ids(v.columns[0].tasks), ["todo"]);
+  assert.deepEqual(ids(v.columns[1].tasks), ["doing"], "进行中列要真的分出来");
+  assert.deepEqual(ids(v.columns[2].tasks), ["done"]);
+});
+
+test("名字按大小写不敏感匹配，SP 里叫 In-Progress 也认", () => {
+  const v = build({
+    allTasks: [task({ id: "doing", tagIds: ["x"] })],
+    projects: [],
+    tags: [{ id: "x", title: "In-Progress", taskIds: [] }],
+  });
+  assert.deepEqual(v.missingTags, []);
+  assert.deepEqual(ids(v.columns[1].tasks), ["doing"]);
+});
+
+test("写死 ID 存在时优先用它，不受同名标签干扰", () => {
+  // SP 里可能同时有一个 ID 正确的 in-progress 和一个用户手建的随机 ID 同名标签。
+  // 以写死 ID 为准，避免把两个标签的任务混在一起。
+  const v = build({
+    allTasks: [
+      task({ id: "official", tagIds: [KANBAN_IN_PROGRESS] }),
+      task({ id: "stray", tagIds: ["random"] }),
+    ],
+    projects: [],
+    tags: [
+      { id: KANBAN_IN_PROGRESS, title: "in-progress", taskIds: [] },
+      { id: "random", title: "in-progress", taskIds: [] },
+    ],
+  });
+  assert.deepEqual(v.missingTags, []);
+  assert.deepEqual(ids(v.columns[1].tasks), ["official"]);
+  assert.deepEqual(ids(v.columns[0].tasks), ["stray"], "同名但不是那个 ID 的，按没打标签处理");
 });
 
 test("列内排序：逾期的在前，然后按计划时刻，最后按 SP 里的顺序", () => {

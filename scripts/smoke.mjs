@@ -86,6 +86,14 @@ results.push(await run("boards-matrix", {
   settings: { version: 2, boardPreset: "eisenhower", cards: { boards: ALL.cards.boards } },
   expect: PNG("boards"),
 }));
+// 矩阵：标签齐了但一条任务都没打过标 —— 第四格要叫「未分类」，并挂提示
+results.push(await run("boards-untagged", {
+  settings: { version: 2, boardPreset: "eisenhower", cards: { boards: ALL.cards.boards } },
+  mutate: (d) => {
+    d.allTasks = d.allTasks.map((t) => ({ ...t, tagIds: (t.tagIds || []).filter((id) => !["EM_URGENT", "EM_IMPORTANT"].includes(id)) }));
+  },
+  expect: PNG("boards"),
+}));
 results.push(await run("sp-focus", {
   mutate: (d) => {
     d.current = d.allTasks.find((t) => t.id === "report");

@@ -1,7 +1,7 @@
 {
   "name": "sp-desktop-cards",
   "productName": "SP 桌面卡片",
-  "version": "0.8.1",
+  "version": "0.8.2",
   "description": "Super Productivity 的桌面卡片：专注与番茄钟、今日、规划、日程、月历、统计、清单、热力图、待整理、时间去向、看板，卡片可拼接吸附，可置顶或嵌入桌面。",
   "main": "src/main/main.js",
   "type": "module",

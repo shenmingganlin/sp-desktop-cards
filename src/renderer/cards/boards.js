@@ -48,13 +48,23 @@
     render(body, state) {
       const v = state.view;
       if (!v) return;
-      // 缺标签只在上面挂一条提示，看板照画：SP 自己也是这么处理的。
+      // 提示条只在上面挂一条，看板照画：SP 自己也是这么处理的。
       // 整张卡换成提示，看起来就像「SP 里有数据但卡片没有」。
+      const untaggedBucket = v.columns.find((c) => c.isUntaggedBucket);
       if (v.missingTags.length) {
         const note = W.el("div", "board-note");
+        // 第四格这时叫「未分类」，里面的任务不是「判过不重要」，是根本没标过。
+        // 不说这一句，用户会以为卡片替他判了轻重缓急。
+        const untagged = untaggedBucket ? "「未分类」里的任务只是没打标签，不是判过轻重缓急了。" : "";
         note.append(W.el("span", "", `SP 里还没有 ${v.missingTagLabels.map((n) => `「${n}」`).join("、")} 标签，${
           v.blankColumns.length ? `「${v.columns.filter((c) => v.blankColumns.includes(c.id)).map((c) => c.title).join("」「")}」列会是空的。` : ""
-        }在 SP 里打开一次看板就会建好。`));
+        }${untagged}在 SP 里打开一次看板就会建好。`));
+        body.append(note);
+      } else if (untaggedBucket) {
+        // 标签建好了，但一条任务都没打过标 —— 第四格照样是全部任务。
+        // 这时只有「未分类」三个字不够，得告诉用户怎么让矩阵活起来。
+        const note = W.el("div", "board-note");
+        note.append(W.el("span", "", "还没有任务打过 urgent / important 标签，所以都堆在「未分类」里。给任务打上这两个标签，矩阵才会分开。"));
         body.append(note);
       }
       if (!v.counts.total) {

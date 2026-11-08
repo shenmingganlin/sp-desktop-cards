@@ -89,8 +89,23 @@ export function buildBoard(raw, opts = {}) {
     for (const id of project?.backlogTaskIds || []) backlogIds.add(id);
   }
 
-  const knownTags = new Set((raw?.tags || []).map((t) => t.id));
-  const missingTags = presetTags(presetKey).filter((id) => !knownTags.has(id));
+  // SP 打开看板时会用写死的 ID 建这三个标签，但用户也可能自己在 SP 里或
+  // 通过插件 API 建同名标签 —— 那样的 ID 是随机的。只认写死 ID 的话，
+  // 卡片会说「没有 in-progress 标签」并把列留空，而用户明明建了。
+  // 所以：写死 ID 在就用写死 ID；不在就按名字找，找到哪个用哪个。
+  const tagList = (raw?.tags || []).filter((t) => t && typeof t.id === "string");
+  const knownTags = new Set(tagList.map((t) => t.id));
+  const idByTitle = new Map(tagList.map((t) => [String(t.title ?? "").toLowerCase(), t.id]));
+  // 预设里的写死 ID → 实际能用的 ID（可能还是它自己，也可能是同名的那个）
+  const resolved = new Map();
+  for (const id of presetTags(presetKey)) {
+    if (knownTags.has(id)) resolved.set(id, id);
+    else {
+      const byName = idByTitle.get((TAG_LABEL[id] || "").toLowerCase());
+      if (byName) resolved.set(id, byName);
+    }
+  }
+  const missingTags = presetTags(presetKey).filter((id) => !resolved.has(id));
 
   const rankOf = new Map(all.map((t, i) => [t.id, i]));
   const row = (t) => {
@@ -114,6 +129,12 @@ export function buildBoard(raw, opts = {}) {
     };
   };
 
+  // 写死 ID 换成人身上实际带着的那个 ID（见上面 resolved）
+  const has = (tags, id) => {
+    const actual = resolved.get(id);
+    return actual !== undefined && tags.includes(actual);
+  };
+
   const matches = (panel, t) => {
     if (panel.doneState === DONE_ONLY && !t.isDone) return false;
     if (panel.doneState === DONE_UN && t.isDone) return false;
@@ -122,10 +143,19 @@ export function buildBoard(raw, opts = {}) {
     const tags = t.tagIds || [];
     // includedTagIds 是「全都要带上」（矩阵第一格要同时有紧急和重要两个标签）；
     // excludedTagIds 是「一个都不能带」。
-    for (const id of panel.includedTagIds) if (!tags.includes(id)) return false;
-    for (const id of panel.excludedTagIds) if (tags.includes(id)) return false;
+    for (const id of panel.includedTagIds) if (!has(tags, id)) return false;
+    for (const id of panel.excludedTagIds) if (has(tags, id)) return false;
     return true;
   };
+
+  // 矩阵的第四格是「两个标签都没有」。当一条任务都没带过这两个标签时，
+  // 全部任务都满足这个条件，齐刷刷掉进去，格名却写着「不紧急不重要」——
+  // 那是在替用户下判断，而他根本没标过任何一条。这时它其实是「还没分类」。
+  // 判断看的是「有没有人真打过标」，不是「标签存不存在」：标签建好了却一条没标，
+  // 第四格同样是全量任务，名字一样在骗人。
+  const matrixTags = [EM_URGENT, EM_IMPORTANT].map((id) => resolved.get(id)).filter((id) => id !== undefined);
+  const untaggedBucket = presetKey === "eisenhower" &&
+    !all.some((t) => (t.tagIds || []).some((id) => matrixTags.includes(id)));
 
   const columns = preset.panels.map((panel) => {
     const tasks = all.filter((t) => matches(panel, t)).map(row);
@@ -134,7 +164,13 @@ export function buildBoard(raw, opts = {}) {
     // 没做完的之间：逾期的最急，其次按计划时刻，都没有的按 SP 里的顺序。
     tasks.sort((a, b) => (a.isDone - b.isDone) || (b.overdue - a.overdue) || (a.dueAt ?? Infinity) - (b.dueAt ?? Infinity) || rankOf.get(a.id) - rankOf.get(b.id));
     const undone = tasks.filter((t) => !t.isDone).length;
-    return { id: panel.id, title: panel.title, tasks, count: tasks.length, undoneCount: undone, doneCount: tasks.length - undone };
+    const bucket = untaggedBucket && panel.id === "NOT_URGENT_NOT_IMPORTANT";
+    return {
+      id: panel.id,
+      title: bucket ? "未分类" : panel.title,
+      isUntaggedBucket: bucket,
+      tasks, count: tasks.length, undoneCount: undone, doneCount: tasks.length - undone,
+    };
   });
 
   // 缺标签只是提示，不是错误：SP 自己的看板照样画出来，只在上面挂一条提示。
