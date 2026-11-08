@@ -99,6 +99,8 @@ export function startFakeSp({ token = "A".repeat(32), data, port = 0, host = "12
       if (req.method === "PATCH" && parts.length === 2) {
         if (typeof body.isDone === "boolean") t.isDone = body.isDone;
         if (t.isDone && state.current === t.id) state.current = null;
+        // SP 20 的 REST 白名单里有 tagIds（实测 200，读回来就是新的一组）
+        if (Array.isArray(body.tagIds)) t.tagIds = [...body.tagIds];
         // SP 19.x 支持改排期字段，null 表示清空
         if ("dueDay" in body) t.dueDay = body.dueDay;
         if ("dueWithTime" in body) t.dueWithTime = body.dueWithTime;

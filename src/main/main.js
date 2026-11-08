@@ -5,7 +5,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { BOARD_PRESET_IDS, buildBoard } from "./boards.js";
+import { BOARD_PRESETS, BOARD_PRESET_IDS, buildBoard, moveTaskToColumn } from "./boards.js";
 import { buildBreakdown, DIMENSIONS } from "./breakdown.js";
 import { addDays, addMonths, buildMonth, buildPlanner, buildSchedule } from "./calendar.js";
 import { CARD_TITLE, createCards } from "./cards.js";
@@ -504,6 +504,45 @@ function cardMenu(type) {
  * 两项都可能动很多条，所以都先问一声——这是不可撤销的操作（归档要去 SP 里恢复）。
  * 数字放在菜单项上，不用打开弹窗才知道要动多少。
  */
+/**
+ * 看板上「移到其他列」的菜单。只列目标列，点哪列就挪到哪列。
+ * 当前列的标题写在第一行，免得用户忘了自己从哪儿挪的。
+ */
+function boardMoveMenu(taskId, columnId) {
+  const preset = settings.get().boardPreset;
+  const def = BOARD_PRESETS[preset] || BOARD_PRESETS.kanban;
+  const current = def.panels.find((p) => p.id === columnId);
+  const task = (raw?.allTasks || []).find((t) => t.id === taskId);
+  if (!current || !task) return Menu.buildFromTemplate([{ label: "任务或列已经不在了", enabled: false }]);
+  const items = def.panels
+    .filter((p) => p.id !== columnId)
+    .map((p) => ({ label: p.title, click: () => { void moveTaskToColumnAction(taskId, p.id); } }));
+  return Menu.buildFromTemplate([
+    { label: `${task.title}（现在在「${current.title}」）`, enabled: false },
+    { type: "separator" },
+    ...items,
+  ]);
+}
+
+/** 换列的菜单动作。成功/失败都要说清楚，失败不能装作挪过去了。 */
+async function moveTaskToColumnAction(taskId, columnId) {
+  let patch;
+  try {
+    patch = moveTaskToColumn(raw, { taskId, columnId, preset: settings.get().boardPreset });
+  } catch (error) {
+    toast?.show({ text: error.message, ms: 4000 });
+    return;
+  }
+  const result = await runTaskAction(() => client.patchTask(taskId, patch));
+  if (result.ok) {
+    const def = BOARD_PRESETS[settings.get().boardPreset] || BOARD_PRESETS.kanban;
+    const title = def.panels.find((p) => p.id === columnId)?.title || columnId;
+    toast?.show({ text: `已移到「${title}」`, ms: 2500 });
+  } else {
+    toast?.show({ text: `没挪成：${result.message}`, ms: 4000 });
+  }
+}
+
 function wrapUpMenu() {
   const view = raw ? buildView(raw, { dayStartHour: settings.get().dayStartHour, upcomingMinutes: settings.get().upcomingMinutes }) : null;
   const w = view?.wrapUp;
@@ -995,6 +1034,12 @@ const cardActions = {
   setBreakdownBy: ({ by }) => (DIMENSIONS.includes(by) ? (saveSettings({ breakdownBy: by }), OK) : null),
   // 看板卡片：三列看板 / 四象限矩阵之间切换
   setBoardPreset: ({ preset }) => (BOARD_PRESET_IDS.includes(preset) ? (saveSettings({ boardPreset: preset }), OK) : null),
+  // 看板卡片：点「⇄」弹出目标列菜单。要改的标签/完成状态由 moveTaskToColumn 算。
+  moveMenu: ({ id, columnId }) => {
+    if (!isId(id) || typeof columnId !== "string" || !raw) return null;
+    cards.popup("boards", boardMoveMenu(id, columnId));
+    return OK;
+  },
   // 待整理卡片：把任务排到今天。dueWithTime 要一起清掉，不然 SP 里还按原来的钟点算。
   scheduleToday: ({ id }) => (isId(id) ? runTaskAction(() => client.patchTask(id, { dueDay: currentDay(), dueWithTime: null })) : null),
   // 结束一天卡片：把没做完的排到明天。和「排到今天」同一条道理，dueWithTime 一起清掉。

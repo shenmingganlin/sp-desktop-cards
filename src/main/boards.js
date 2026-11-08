@@ -70,6 +70,73 @@ export function presetTags(presetId) {
 export const TAG_LABEL = { [KANBAN_IN_PROGRESS]: "in-progress", [EM_URGENT]: "urgent", [EM_IMPORTANT]: "important" };
 
 /**
+ * 把标签 id 解析成「实际在用的那个」：写死 ID 存在就用它，否则按名字找。
+ * 分列和换列都要用同一套规则，不然卡片说「已经在进行中」，
+ * 换列却摘不掉标签 —— 两边对不上。
+ */
+function resolveTagIds(tags, wanted) {
+  const list = (tags || []).filter((t) => t && typeof t.id === "string");
+  const known = new Set(list.map((t) => t.id));
+  const byTitle = new Map(list.map((t) => [String(t.title ?? "").toLowerCase(), t.id]));
+  const resolved = new Map();
+  for (const id of wanted) {
+    if (known.has(id)) resolved.set(id, id);
+    else {
+      const byName = byTitle.get((TAG_LABEL[id] || "").toLowerCase());
+      if (byName) resolved.set(id, byName);
+    }
+  }
+  return resolved;
+}
+
+/**
+ * 换列：算出把任务挪到某列之后应该写成什么样。
+ * 只返回要 PATCH 的字段，调用方负责发请求。
+ *
+ * raw = { allTasks, tags }，move = { taskId, columnId, preset }。
+ * 返回 { tagIds, isDone } —— isDone 只在需要改时才带上。
+ *
+ * 不认识的列、找不到的任务都抛错：静默不动比报错更糟，
+ * 用户会以为拖动生效了。
+ */
+export function moveTaskToColumn(raw, { taskId, columnId, preset }) {
+  const presetKey = BOARD_PRESETS[preset] ? preset : "kanban";
+  const def = BOARD_PRESETS[presetKey];
+  const panel = def.panels.find((p) => p.id === columnId);
+  if (!panel) throw new Error(`未知的列：${columnId}`);
+  const all = (raw?.allTasks || []).filter((t) => t && typeof t.id === "string");
+  const target = all.find((t) => t.id === taskId);
+  if (!target) throw new Error(`找不到任务：${taskId}`);
+
+  const resolved = resolveTagIds(raw?.tags, presetTags(presetKey));
+  const current = Array.isArray(target.tagIds) ? [...target.tagIds] : [];
+
+  // 这个预设管的标签：先把它们全摘掉，再按目标列的规则加回来。
+  // 只摘当前预设的，不动用户自己的标签（「英语」「习惯」这些）。
+  const managed = new Set([...resolved.values()]);
+  const next = current.filter((id) => !managed.has(id));
+
+  // includedTagIds = 这一列要求全部带上的标签
+  for (const wanted of panel.includedTagIds) {
+    const actual = resolved.get(wanted);
+    // 标签在 SP 里压根不存在时加不上 —— 直接报错，别假装换成功了
+    if (actual === undefined) throw new Error(`SP 里还没有「${TAG_LABEL[wanted] || wanted}」标签，先在 SP 里建好才能挪到这一列。`);
+    if (!next.includes(actual)) next.push(actual);
+  }
+
+  const patch = { tagIds: next };
+
+  // 看板的「已完成」列是靠 isDone 分的；矩阵四格都是 doneState=all，
+  // 那里的完成状态和列无关，拖动不能顺手把任务勾完成或取消完成。
+  if (presetKey === "kanban" && panel.doneState !== DONE_ALL) {
+    const shouldBeDone = panel.doneState === DONE_ONLY;
+    if (target.isDone !== shouldBeDone) patch.isDone = shouldBeDone;
+  }
+
+  return patch;
+}
+
+/**
  * raw = { allTasks, projects, tags }，opts = { preset, today, now }。
  * 返回 { preset, title, cols, columns: [{ id, title, tasks }], missingTags, needsSetup, counts }。
  */
@@ -93,18 +160,7 @@ export function buildBoard(raw, opts = {}) {
   // 通过插件 API 建同名标签 —— 那样的 ID 是随机的。只认写死 ID 的话，
   // 卡片会说「没有 in-progress 标签」并把列留空，而用户明明建了。
   // 所以：写死 ID 在就用写死 ID；不在就按名字找，找到哪个用哪个。
-  const tagList = (raw?.tags || []).filter((t) => t && typeof t.id === "string");
-  const knownTags = new Set(tagList.map((t) => t.id));
-  const idByTitle = new Map(tagList.map((t) => [String(t.title ?? "").toLowerCase(), t.id]));
-  // 预设里的写死 ID → 实际能用的 ID（可能还是它自己，也可能是同名的那个）
-  const resolved = new Map();
-  for (const id of presetTags(presetKey)) {
-    if (knownTags.has(id)) resolved.set(id, id);
-    else {
-      const byName = idByTitle.get((TAG_LABEL[id] || "").toLowerCase());
-      if (byName) resolved.set(id, byName);
-    }
-  }
+  const resolved = resolveTagIds(raw?.tags, presetTags(presetKey));
   const missingTags = presetTags(presetKey).filter((id) => !resolved.has(id));
 
   const rankOf = new Map(all.map((t, i) => [t.id, i]));

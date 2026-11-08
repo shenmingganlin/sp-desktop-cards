@@ -38,6 +38,35 @@ async function withSp(fn, opts = {}) {
   }
 }
 
+// 看板换列：patchTask 要真的把标签和完成状态写进 SP，读回来对得上。
+test("客户端：换列写进 SP —— 标签和完成状态都能改，读回来一致", () => {
+  const data = sampleData();
+  // 看板标签是 SP 第一次打开看板时才建的，默认数据里没有
+  data.tags = [...data.tags, { id: "KANBAN_IN_PROGRESS", title: "in-progress", taskIds: [] }];
+  return withSp(async (sp, client) => {
+    const tags = await client.tags();
+    const ip = tags.find((t) => t.title === "in-progress");
+    assert.ok(ip, "假 SP 里要有 in-progress 标签");
+
+    // 待办 → 进行中：只加标签
+    await client.patchTask("report", { tagIds: [ip.id] });
+    let t = sp.state.tasks.find((x) => x.id === "report");
+    assert.deepEqual(t.tagIds, [ip.id]);
+
+    // 进行中 → 已完成：摘标签 + 勾完成
+    await client.patchTask("report", { tagIds: [], isDone: true });
+    t = sp.state.tasks.find((x) => x.id === "report");
+    assert.deepEqual(t.tagIds, []);
+    assert.equal(t.isDone, true);
+
+    // 别的标签不能被顺手抹掉：先加一个自己的，再换列
+    await client.patchTask("report", { tagIds: ["mine"] });
+    await client.patchTask("report", { tagIds: ["mine", ip.id] });
+    t = sp.state.tasks.find((x) => x.id === "report");
+    assert.deepEqual(t.tagIds, ["mine", ip.id]);
+  }, { data });
+});
+
 test("客户端：读列表、勾选、开始和停止计时", () =>
   withSp(async (sp, client) => {
     assert.equal((await client.todayTasks()).length, 6);

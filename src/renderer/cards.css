@@ -249,6 +249,18 @@
 .board-row .text { font-size: 12px; }
 .board-row .meta { font-size: 10px; }
 .board-row .play { width: 18px; height: 18px; }
+/* 换列按钮：和 ▶ 同一个形状，平时藏起来，hover 才露出来 */
+.board-row .move {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  font-size: 11px;
+  color: var(--dim);
+  visibility: hidden;
+}
+.board-row:hover .move { visibility: visible; }
+.board-row .move:hover { background: var(--accent); color: var(--ink-on-accent); }
 /* 已完成的整行压暗划掉：重复任务每天生成一条同名任务，做完的不区分就像重复 bug */
 .board-row.done { opacity: 0.5; }
 .board-row.done .title { text-decoration: line-through; }

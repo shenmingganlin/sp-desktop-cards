@@ -4,7 +4,7 @@
 
 (() => {
   /** 一行：和 card.js 的 taskRow 同一个样子，但没有勾选框 —— 看板上主要是看分布。 */
-  function boardRow(item) {
+  function boardRow(item, column, columns) {
     const row = W.el("div", "row board-row");
     // 已完成要划掉标暗：重复任务每天生成一条同名任务，做完的不区分的话，
     // 一列看下去像「同一件事出现了七次」。
@@ -25,6 +25,13 @@
     if (item.canTrack) {
       row.append(W.button("play", item.isCurrent ? "❚❚" : "▶", item.isCurrent ? "停止计时" : "开始计时", () =>
         (item.isCurrent ? W.act("stop") : W.act("start", { id: item.id }))));
+    }
+    // 换列：看板不能只是只读的展示。按钮只在 hover 时露出来，
+    // 平时不挤占标题的宽度（一列可能十几条）。
+    const others = columns.filter((c) => c.id !== column.id);
+    if (others.length) {
+      row.append(W.button("move", "⇄", `移到其他列（现在在「${column.title}」）`, () =>
+        W.act("moveMenu", { id: item.id, columnId: column.id })));
     }
     return row;
   }
@@ -86,7 +93,7 @@
         head.append(W.el("span", "board-col-count", count));
         box.append(head);
         if (!col.count) box.append(W.el("div", "board-col-empty", "—"));
-        for (const item of col.tasks) box.append(boardRow(item));
+        for (const item of col.tasks) box.append(boardRow(item, col, v.columns));
         grid.append(box);
       }
       body.append(grid);

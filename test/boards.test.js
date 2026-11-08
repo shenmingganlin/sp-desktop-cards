@@ -1,7 +1,7 @@
 // 看板与艾森豪威尔矩阵的数据整理：按 SP 20 默认看板的列规则把任务分到各列。
 import assert from "node:assert/strict";
 import test from "node:test";
-import { BOARD_PRESETS, buildBoard, KANBAN_IN_PROGRESS, EM_URGENT, EM_IMPORTANT } from "../src/main/boards.js";
+import { BOARD_PRESETS, buildBoard, moveTaskToColumn, KANBAN_IN_PROGRESS, EM_URGENT, EM_IMPORTANT } from "../src/main/boards.js";
 import { NOW, TODAY, sampleData, task } from "./fixtures.js";
 
 const MIN = 60_000;
@@ -261,4 +261,82 @@ test("看板列不设「只看父任务」，子任务自己占一行；矩阵�
   const matrix = new Set(build(raw, "eisenhower").columns.flatMap((c) => c.tasks.map((t) => t.id)));
   assert.ok(matrix.has("parent"));
   assert.ok(!matrix.has("c1"), "矩阵只看父任务");
+});
+
+// ── 换列：看板不能只是只读的展示 ──
+
+test("看板换列：待办 → 进行中，加上 in-progress 标签", () => {
+  const raw = withTags([task({ id: "a", tagIds: ["keep-me"] })]);
+  const next = moveTaskToColumn(raw, { taskId: "a", columnId: "IN_PROGRESS", preset: "kanban" });
+  assert.deepEqual(next.tagIds, ["keep-me", KANBAN_IN_PROGRESS], "别的标签不能丢");
+});
+
+test("看板换列：进行中 → 待办，摘掉 in-progress，别的标签留着", () => {
+  const raw = withTags([task({ id: "a", tagIds: ["keep-me", KANBAN_IN_PROGRESS] })]);
+  const next = moveTaskToColumn(raw, { taskId: "a", columnId: "TODO", preset: "kanban" });
+  assert.deepEqual(next.tagIds, ["keep-me"]);
+});
+
+test("看板换列：已经在目标列时不重复加标签", () => {
+  const raw = withTags([task({ id: "a", tagIds: [KANBAN_IN_PROGRESS] })]);
+  const next = moveTaskToColumn(raw, { taskId: "a", columnId: "IN_PROGRESS", preset: "kanban" });
+  assert.deepEqual(next.tagIds, [KANBAN_IN_PROGRESS], "不能变成两个一样的标签");
+});
+
+test("看板换列：已完成列靠 isDone，不靠标签", () => {
+  const raw = withTags([task({ id: "a", tagIds: ["keep-me"] })]);
+  const next = moveTaskToColumn(raw, { taskId: "a", columnId: "DONE", preset: "kanban" });
+  assert.deepEqual(next.tagIds, ["keep-me"], "标签原样");
+  assert.equal(next.isDone, true);
+});
+
+test("看板换列：从已完成拖回待办，要取消完成", () => {
+  const raw = withTags([task({ id: "a", isDone: true, tagIds: [KANBAN_IN_PROGRESS] })]);
+  const next = moveTaskToColumn(raw, { taskId: "a", columnId: "TODO", preset: "kanban" });
+  assert.equal(next.isDone, false);
+  assert.deepEqual(next.tagIds, [], "in-progress 也要摘掉");
+});
+
+test("矩阵换列：四个格子按两个标签的组合来", () => {
+  const raw = withTags([task({ id: "a" })]);
+  const set = (columnId) => moveTaskToColumn(raw, { taskId: "a", columnId, preset: "eisenhower" }).tagIds.sort();
+  assert.deepEqual(set("URGENT_AND_IMPORTANT"), [EM_IMPORTANT, EM_URGENT].sort());
+  assert.deepEqual(set("NOT_URGENT_AND_IMPORTANT"), [EM_IMPORTANT]);
+  assert.deepEqual(set("URGENT_AND_NOT_IMPORTANT"), [EM_URGENT]);
+  assert.deepEqual(set("NOT_URGENT_NOT_IMPORTANT"), [], "两个标签都摘掉");
+});
+
+test("矩阵换列：从「重要且紧急」挪到「重要不紧急」，摘掉 urgent 留着 important", () => {
+  const raw = withTags([task({ id: "a", tagIds: [EM_URGENT, EM_IMPORTANT] })]);
+  const next = moveTaskToColumn(raw, { taskId: "a", columnId: "NOT_URGENT_AND_IMPORTANT", preset: "eisenhower" });
+  assert.deepEqual(next.tagIds, [EM_IMPORTANT]);
+});
+
+test("换列时标签按名字解析，不只认写死 ID", () => {
+  // 和分列同一套道理：用户手建的 in-progress（ID 随机）也要认。
+  const raw = { allTasks: [task({ id: "a", tagIds: ["random-ip"] })], projects: [], tags: [{ id: "random-ip", title: "in-progress", taskIds: [] }] };
+  const next = moveTaskToColumn(raw, { taskId: "a", columnId: "TODO", preset: "kanban" });
+  assert.deepEqual(next.tagIds, [], "摘掉的是那个真实存在的同名标签");
+});
+
+test("换列：不认识的列 / 找不到的任务都明确报错，不静默改坏", () => {
+  const raw = withTags([task({ id: "a" })]);
+  assert.throws(() => moveTaskToColumn(raw, { taskId: "a", columnId: "NOPE", preset: "kanban" }), /列/);
+  assert.throws(() => moveTaskToColumn(raw, { taskId: "zzz", columnId: "TODO", preset: "kanban" }), /任务/);
+});
+
+test("换列：矩阵里拖动已完成的任务，不悄悄把它变成未完成", () => {
+  // 矩阵四格都是 doneState=all，已完成的任务也在里面。
+  // 挪个格子顺手取消完成，等于用户只想分类却把活干回去了。
+  // 返回的 patch 里根本不该出现 isDone —— 出现就意味着要动完成状态。
+  const raw = withTags([task({ id: "a", isDone: true, tagIds: [EM_URGENT] })]);
+  const next = moveTaskToColumn(raw, { taskId: "a", columnId: "NOT_URGENT_AND_IMPORTANT", preset: "eisenhower" });
+  assert.ok(!("isDone" in next), "完成状态不该进 patch");
+  assert.deepEqual(next.tagIds, [EM_IMPORTANT]);
+});
+
+test("换列：看板里完成状态没变时不写 isDone，省掉一次无意义的改", () => {
+  const raw = withTags([task({ id: "a", isDone: false })]);
+  const next = moveTaskToColumn(raw, { taskId: "a", columnId: "TODO", preset: "kanban" });
+  assert.ok(!("isDone" in next));
 });
