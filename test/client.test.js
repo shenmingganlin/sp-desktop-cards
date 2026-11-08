@@ -10,6 +10,25 @@ import { readSpToken } from "../src/main/token.js";
 import { startFakeSp } from "./fake-sp.js";
 import { sampleData } from "./fixtures.js";
 
+// 结束这一天要用的两个动作：归档（SP 的 POST /tasks/:id/archive）和排到明天（PATCH dueDay）。
+test("客户端：归档走 POST /tasks/:id/archive，SP 不支持时如实报错", async () => {
+  const sp = await startFakeSp({ data: sampleData() });
+  try {
+    const client = createClient({ baseUrl: sp.url, getToken: async () => sp.token });
+    const r = await client.archiveTask("finished");
+    assert.equal(r.archived, true);
+    assert.equal(sp.state.tasks.find((t) => t.id === "finished"), undefined, "任务要从活动列表里移走");
+    // 子任务不能单独归档：SP 会回 400，我们不能把它当成成功
+    const child = sp.state.tasks.find((t) => t.id === "c2");
+    assert.ok(child);
+    const err = await client.archiveTask("c2").then(() => null, (e) => e);
+    assert.ok(err, "归档子任务必须报错");
+    assert.equal(err.status, 400);
+  } finally {
+    await sp.close();
+  }
+});
+
 async function withSp(fn, opts = {}) {
   const sp = await startFakeSp({ data: sampleData(), ...opts });
   try {

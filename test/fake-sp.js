@@ -20,6 +20,7 @@ export function startFakeSp({ token = "A".repeat(32), data, port = 0, host = "12
     focus: structuredClone(data.focus),
     calls: [],
     bodies: [], // 写操作收到的请求体
+    archived: [], // 归档过的任务 id
     failNext: null, // { status, code } 让下一个请求失败
     down: false,
     seq: 0,
@@ -112,6 +113,16 @@ export function startFakeSp({ token = "A".repeat(32), data, port = 0, host = "12
       if (req.method === "POST" && parts[2] === "start") {
         state.current = t.id;
         return ok(res, { currentTaskId: t.id });
+      }
+      // 归档：照 SP 的规则——连子任务一起搬走，子任务不能单独归档
+      if (req.method === "POST" && parts[2] === "archive") {
+        if (t.parentId) return fail(res, 400, "INVALID_INPUT", "Cannot archive a subtask on its own; archive its parent task, which takes its subtasks with it");
+        const ids = new Set([t.id, ...(t.subTaskIds || [])]);
+        state.tasks = state.tasks.filter((x) => !ids.has(x.id));
+        state.todayIds = new Set([...state.todayIds].filter((x) => !ids.has(x)));
+        if (ids.has(state.current)) state.current = null;
+        state.archived.push(...[...ids]);
+        return ok(res, { id: t.id, archived: true });
       }
     }
     return fail(res, 404, "NOT_FOUND");

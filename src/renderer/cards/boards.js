@@ -6,6 +6,9 @@
   /** 一行：和 card.js 的 taskRow 同一个样子，但没有勾选框 —— 看板上主要是看分布。 */
   function boardRow(item) {
     const row = W.el("div", "row board-row");
+    // 已完成要划掉标暗：重复任务每天生成一条同名任务，做完的不区分的话，
+    // 一列看下去像「同一件事出现了七次」。
+    if (item.isDone) row.classList.add("done");
     if (item.isCurrent) row.classList.add("current");
     if (item.overdue) row.classList.add("overdue");
     const text = W.el("div", "text");
@@ -65,7 +68,12 @@
         const box = W.el("div", "board-col");
         const head = W.el("div", "board-col-head");
         head.append(W.el("span", "board-col-title", col.title));
-        head.append(W.el("span", "board-col-count", String(col.count)));
+        // 列头分开写「还剩几项 / 已完成几项」：只给一个总数时，一列 33 条已完成的
+        // 看起来像 33 件待办，正是用户说「看着像重复」的那一幕。
+        const count = col.doneCount
+          ? `${col.undoneCount} · 完成 ${col.doneCount}`
+          : String(col.count);
+        head.append(W.el("span", "board-col-count", count));
         box.append(head);
         if (!col.count) box.append(W.el("div", "board-col-empty", "—"));
         for (const item of col.tasks) box.append(boardRow(item));

@@ -1,5 +1,5 @@
 // today.js — 今日卡片：逾期、今日、已完成三组，和 SP 的今日视图一致。顶栏「+」快速新建到今天。
-// 收工时底部多一条「收尾账」：还剩哪几项没做完，每项能一键排到明天。
+// 顶栏还有一个「结束这一天」：把没做完的排到明天、把已完成的归档。走原生菜单，不占卡片内容。
 "use strict";
 
 (() => {
@@ -12,61 +12,17 @@
     return frag;
   }
 
-  // 收尾账默认收起成一行：大部分时候看今日卡片是为了看今天要做什么，
-  // 不是看今天还剩什么。想看逐项、想把没做完的排到明天，点一下展开。
-  let wrapOpen = false;
-
-  function wrapUpBox(v) {
-    const w = v.wrapUp;
-    const box = W.el("section", "group wrap-up");
-    const head = W.el("div", "group-head");
-    const ratio = w.ratio === null ? "" : ` · 计划完成 ${Math.round(w.ratio * 100)}%`;
-    const left = w.leftOver.length ? ` · 还剩 ${w.leftOver.length} 项` : "";
-    const toggle = W.button("link", wrapOpen ? "收起" : "收尾", wrapOpen ? "收起收尾账" : "看看今天还剩什么", () => {
-      wrapOpen = !wrapOpen;
-      W.render(true);
-    });
-    head.append(W.el("span", "", `收尾 · 完成 ${w.doneCount} · 用了 ${W.duration(w.spentMs)}${ratio}${left}`), toggle);
-    box.append(head);
-
-    if (!wrapOpen) return box;
-    if (!w.leftOver.length) {
-      box.append(W.el("div", "none", "今天排的都做完了。"));
-      return box;
-    }
-    const all = W.button("link", "全部排到明天", "", async () => {
-      all.disabled = true;
-      for (const item of w.leftOver) await W.act("scheduleTomorrow", { id: item.id });
-      all.disabled = false;
-      W.toast(`把 ${w.leftOver.length} 项排到明天了`);
-    });
-    box.append(all);
-    for (const item of w.leftOver) {
-      const row = W.el("div", "row wrap-row");
-      const text = W.el("div", "text");
-      if (item.parentTitle) text.append(W.el("span", "parent", `${item.parentTitle} › `));
-      text.append(W.el("span", "title", item.title));
-      text.title = item.parentTitle ? `${item.parentTitle} › ${item.title}` : item.title;
-      row.append(text);
-      if (item.left > 0) row.append(W.el("span", "meta", W.duration(item.left)));
-      const put = W.button("link", "明天", "排到明天", async () => {
-        put.disabled = true;
-        const r = await W.act("scheduleTomorrow", { id: item.id });
-        if (r?.ok) W.toast(`「${item.title}」排到明天了`);
-        put.disabled = false;
-      });
-      row.append(put);
-      if (item.canTrack) {
-        row.append(W.button("play", "▶", "开始计时", () => W.act("start", { id: item.id })));
-      }
-      box.append(row);
-    }
-    return box;
-  }
-
   W.define("today", {
     title: "今日",
-    tools: (state) => (state.view ? [{ text: "+", title: "新建今天的任务", on: W.isAdding("today"), click: () => W.openAdd("today", state.view.today) }] : []),
+    tools: (state) => {
+      if (!state.view) return [];
+      const list = [{ text: "+", title: "新建今天的任务", on: W.isAdding("today"), click: () => W.openAdd("today", state.view.today) }];
+      // 今天什么都没发生时不显示：没有可排的，也没有可归档的
+      if (state.view.wrapUp && !state.view.wrapUp.isEmpty) {
+        list.push({ text: "结束这一天", wide: true, title: "把没做完的排到明天，把已完成的归档", click: () => W.act("wrapUpMenu") });
+      }
+      return list;
+    },
     sub(state, collapsed) {
       const v = state.view;
       if (!v) return "";
@@ -101,8 +57,6 @@
         if (showDone) box.append(rows(v.done));
         body.append(box);
       }
-      // 今天什么都没发生时不硬凑一条「收尾 · 完成 0」
-      if (v.wrapUp && !v.wrapUp.isEmpty) body.append(wrapUpBox(v));
     },
     foot(state) {
       const s = state.view.stats;

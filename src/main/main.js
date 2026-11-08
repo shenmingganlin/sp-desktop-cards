@@ -498,6 +498,70 @@ function cardMenu(type) {
 }
 
 /**
+ * 「结束这一天」菜单：两项动作，各自告诉你要动几条。
+ * 用原生菜单，和卡片自己的 ⋯ 菜单一样不抢激活。
+ *
+ * 两项都可能动很多条，所以都先问一声——这是不可撤销的操作（归档要去 SP 里恢复）。
+ * 数字放在菜单项上，不用打开弹窗才知道要动多少。
+ */
+function wrapUpMenu() {
+  const view = raw ? buildView(raw, { dayStartHour: settings.get().dayStartHour, upcomingMinutes: settings.get().upcomingMinutes }) : null;
+  const w = view?.wrapUp;
+  const left = w?.leftOver ?? [];
+  const doneIds = w?.doneIds ?? [];
+  const item = (label, enabled, run) => ({ label, enabled, click: run });
+  return Menu.buildFromTemplate([
+    { label: `结束这一天`, enabled: false },
+    { type: "separator" },
+    item(left.length ? `没做完的 ${left.length} 项排到明天` : "今天没有没做完的", left.length > 0, () => {
+      void moveLeftOverToTomorrow(left);
+    }),
+    item(doneIds.length ? `已完成的 ${doneIds.length} 项归档` : "今天没有已完成的", doneIds.length > 0, () => {
+      void archiveDone(doneIds);
+    }),
+  ]);
+}
+
+/** 没做完的全排到明天。逐条走，失败的说清楚是哪条。 */
+async function moveLeftOverToTomorrow(list) {
+  const day = addDays(currentDay(), 1);
+  let ok = 0;
+  const failed = [];
+  for (const t of list) {
+    try {
+      await client.patchTask(t.id, { dueDay: day, dueWithTime: null });
+      ok += 1;
+    } catch (error) {
+      failed.push(t.title);
+    }
+  }
+  poller.kick();
+  const parts = [];
+  if (ok) parts.push(`已把 ${ok} 项排到明天`);
+  if (failed.length) parts.push(`${failed.length} 项没排上：${failed.slice(0, 2).join("、")}${failed.length > 2 ? "…" : ""}`);
+  toast?.show({ text: parts.join("；"), ms: 4000 });
+}
+
+/** 已完成的归档。SP 连子任务一起搬走；失败照样逐条报。 */
+async function archiveDone(ids) {
+  let ok = 0;
+  const failed = [];
+  for (const id of ids) {
+    try {
+      await client.archiveTask(id);
+      ok += 1;
+    } catch (error) {
+      failed.push(id);
+    }
+  }
+  poller.kick();
+  const parts = [];
+  if (ok) parts.push(`已归档 ${ok} 项`);
+  if (failed.length) parts.push(`${failed.length} 项没归档`);
+  toast?.show({ text: parts.join("；"), ms: 4000 });
+}
+
+/**
  * 清单卡片的来源切换菜单：项目和标签分两段，当前那个打勾。
  * 用原生菜单，和卡片自己的 ⋯ 菜单一样不抢激活。
  */
@@ -925,6 +989,8 @@ const cardActions = {
   rendered: (_p, type) => (SMOKE && smokeStep(type), OK),
   // 清单卡片：弹出项目/标签切换菜单
   listMenu: (_p, type) => (cards.popup(type, listMenu()), OK),
+  // 今日卡片：「结束这一天」菜单
+  wrapUpMenu: (_p, type) => (cards.popup(type, wrapUpMenu()), OK),
   // 时间去向卡片：标签/项目之间切换
   setBreakdownBy: ({ by }) => (DIMENSIONS.includes(by) ? (saveSettings({ breakdownBy: by }), OK) : null),
   // 看板卡片：三列看板 / 四象限矩阵之间切换

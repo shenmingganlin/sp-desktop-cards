@@ -129,9 +129,12 @@ export function buildBoard(raw, opts = {}) {
 
   const columns = preset.panels.map((panel) => {
     const tasks = all.filter((t) => matches(panel, t)).map(row);
-    // 逾期的最急，其次按计划时刻，都没有的按 SP 里的顺序
-    tasks.sort((a, b) => (b.overdue - a.overdue) || (a.dueAt ?? Infinity) - (b.dueAt ?? Infinity) || rankOf.get(a.id) - rankOf.get(b.id));
-    return { id: panel.id, title: panel.title, tasks, count: tasks.length };
+    // 已完成的沉底：重复任务每天生成一条同名任务，做完的全堆在上面时，
+    // 一列看下去像「同一件事出现了七次」。做完的排最后，一眼就知道那些是历史。
+    // 没做完的之间：逾期的最急，其次按计划时刻，都没有的按 SP 里的顺序。
+    tasks.sort((a, b) => (a.isDone - b.isDone) || (b.overdue - a.overdue) || (a.dueAt ?? Infinity) - (b.dueAt ?? Infinity) || rankOf.get(a.id) - rankOf.get(b.id));
+    const undone = tasks.filter((t) => !t.isDone).length;
+    return { id: panel.id, title: panel.title, tasks, count: tasks.length, undoneCount: undone, doneCount: tasks.length - undone };
   });
 
   // 缺标签只是提示，不是错误：SP 自己的看板照样画出来，只在上面挂一条提示。

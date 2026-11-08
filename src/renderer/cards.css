@@ -194,16 +194,6 @@
 .bd-row:hover .bd-fill { opacity: 1; }
 .bd-note { padding: 6px 12px 8px; font-size: 10px; line-height: 1.45; color: var(--mute); }
 
-/* ── 今日卡片底部的收尾账 ── */
-/* 和上面几组隔开：收尾是「今天结束了」的事，不该和待办混在一起看 */
-.wrap-up { margin-top: 4px; border-top: var(--hairline) solid var(--line); }
-.wrap-up .group-head { color: var(--mute); }
-.wrap-row .text { flex: 1; min-width: 0; }
-.wrap-row .link { flex: none; opacity: 0; }
-.wrap-row:hover .link { opacity: 1; }
-.wrap-row .play { flex: none; }
-.wrap-up > .link { margin: 0 10px 4px; font-size: 11px; }
-
 /* ── 看板 ── */
 /* 缺标签的提示：一条就够，压在顶栏下面，不占掉看板本身的位置 */
 .board-note {
@@ -259,3 +249,8 @@
 .board-row .text { font-size: 12px; }
 .board-row .meta { font-size: 10px; }
 .board-row .play { width: 18px; height: 18px; }
+/* 已完成的整行压暗划掉：重复任务每天生成一条同名任务，做完的不区分就像重复 bug */
+.board-row.done { opacity: 0.5; }
+.board-row.done .title { text-decoration: line-through; }
+/* 已完成沉在列底，和未完成之间拉一条细线隔开 */
+.board-row.done:not(.done + .done) { margin-top: 4px; border-top: var(--hairline) solid var(--line); }
