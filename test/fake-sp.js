@@ -30,7 +30,9 @@ export function startFakeSp({ token = "A".repeat(32), data, port = 0, host = "12
     res.writeHead(status, { "Content-Type": "application/json" });
     res.end(JSON.stringify(body));
   };
-  const ok = (res, d, status = 200) => send(res, status, { ok: true, data: d });
+  // JSON.stringify 会把 undefined 的字段整个丢掉，得到 {"ok":true} —— 客户端要求必须有 data，
+  // 于是判成「SP 返回的数据看不懂」。真实 SP 在这种情况下返回的是 data: null。
+  const ok = (res, d, status = 200) => send(res, status, { ok: true, data: d === undefined ? null : d });
   const fail = (res, status, code, message = code) => send(res, status, { ok: false, error: { code, message } });
   // SP 的今日判定：dueWithTime 优先，否则看 dueDay。「今天」按测试数据的 now 算，单元测试不受真实日期影响。
   const today = localDay(data.now ?? Date.now());

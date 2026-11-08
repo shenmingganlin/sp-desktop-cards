@@ -38,6 +38,19 @@ async function withSp(fn, opts = {}) {
   }
 }
 
+test("客户端：SP 没有当前任务/专注状态时返回 null，不能当成响应坏了", () => {
+  // 回归：假 SP 之前用 JSON.stringify 发 {ok:true, data:undefined}，
+  // 序列化后 data 字段整个消失，客户端看到 {"ok":true} 就判成 SP_BAD_RESPONSE。
+  // 真实 SP 这两种情况返回的是 data: null。整轮轮询因此失败、卡片一张都画不出来。
+  const data = sampleData();
+  delete data.focus;
+  data.current = null;
+  return withSp(async (_sp, client) => {
+    assert.equal(await client.current(), null);
+    assert.equal(await client.focus(), null);
+  }, { data });
+});
+
 // 看板换列：patchTask 要真的把标签和完成状态写进 SP，读回来对得上。
 test("客户端：换列写进 SP —— 标签和完成状态都能改，读回来一致", () => {
   const data = sampleData();

@@ -32,14 +32,18 @@ const ALL = {
   },
 };
 
-async function run(name, { mutate, settings = ALL, extraEnv = {}, expect }) {
-  const data = sampleData(Date.now());
-  // 看板/矩阵要用的三个默认标签是 SP 第一次打开看板时才建的；假 SP 里补上，让卡片走到分列那条路
-  data.tags = [...data.tags,
-    { id: "KANBAN_IN_PROGRESS", title: "in-progress", taskIds: ["standup"] },
-    { id: "EM_URGENT", title: "urgent", taskIds: [] },
-    { id: "EM_IMPORTANT", title: "important", taskIds: [] }];
-  data.allTasks = data.allTasks.map((t) => (t.id === "standup" ? { ...t, tagIds: ["KANBAN_IN_PROGRESS"] } : t.id === "review" ? { ...t, tagIds: [...t.tagIds, "EM_URGENT", "EM_IMPORTANT"] } : t));
+async function run(name, { mutate, settings = ALL, extraEnv = {}, expect, data: supplied }) {
+  // 传了 data 就直接用（真实数据快照），否则用样例数据
+  const data = supplied ? structuredClone(supplied) : sampleData(Date.now());
+  // 真实数据快照里标签和任务都是现成的，别再注入样例标签
+  if (!supplied) {
+    // 看板/矩阵要用的三个默认标签是 SP 第一次打开看板时才建的；假 SP 里补上，让卡片走到分列那条路
+    data.tags = [...data.tags,
+      { id: "KANBAN_IN_PROGRESS", title: "in-progress", taskIds: ["standup"] },
+      { id: "EM_URGENT", title: "urgent", taskIds: [] },
+      { id: "EM_IMPORTANT", title: "important", taskIds: [] }];
+    data.allTasks = data.allTasks.map((t) => (t.id === "standup" ? { ...t, tagIds: ["KANBAN_IN_PROGRESS"] } : t.id === "review" ? { ...t, tagIds: [...t.tagIds, "EM_URGENT", "EM_IMPORTANT"] } : t));
+  }
   mutate?.(data);
   const sp = await startFakeSp({ data });
   const dir = path.join(out, name);
@@ -94,6 +98,21 @@ results.push(await run("boards-untagged", {
   },
   expect: PNG("boards"),
 }));
+// 真实数据：48 条任务、12 个标签、4 条重复规则。
+// 样例数据只有十几条，看不出「一列塞满」时到底长什么样 —— 而那正是用户抱怨过的一幕。
+// SPW_REAL_DATA 指向一份真实数据快照（不含凭据），没设就跳过。
+if (process.env.SPW_REAL_DATA) {
+  const real = JSON.parse(fs.readFileSync(process.env.SPW_REAL_DATA, "utf8"));
+  const realSettings = { version: 2, cards: { boards: ALL.cards.boards, today: ALL.cards.today } };
+  // 设置里只写两张卡，但默认值会把 focus 也打开；截图要求所有可见卡片都画完，
+  // 所以 expect 必须把它们都列上，否则场景会一直等到超时。
+  results.push(await run("real-boards", {
+    data: real, settings: { ...realSettings, boardPreset: "kanban" }, expect: PNG("focus", "today", "boards"),
+  }));
+  results.push(await run("real-matrix", {
+    data: real, settings: { ...realSettings, boardPreset: "eisenhower" }, expect: PNG("focus", "today", "boards"),
+  }));
+}
 results.push(await run("sp-focus", {
   mutate: (d) => {
     d.current = d.allTasks.find((t) => t.id === "report");

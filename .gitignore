@@ -3,3 +3,4 @@ dist/
 *.log
 .smoke/
 .smoke-packed/
+.smoke-real.json
