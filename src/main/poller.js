@@ -62,6 +62,7 @@ export function createPoller({
   }
 
   async function run(full) {
+    if (!running) return;
     if (inFlight) {
       // 正在取数据时又要求刷新：等这次结束后再补一次完整刷新。
       pendingFull = pendingFull || full;
@@ -70,17 +71,23 @@ export function createPoller({
     inFlight = (async () => {
       try {
         const data = await refresh(full || failing);
+        if (!running) return;
         failing = false;
         onData(data);
         schedule(idle ? idleFastMs : fastMs);
       } catch (error) {
+        if (!running) return;
         failing = true;
-        onError(error);
+        try {
+          onError(error);
+        } catch {
+          // 错误视图本身也可能失败，不能因此丢掉下一次自动重试。
+        }
         schedule(retryMs);
       } finally {
         inFlight = null;
       }
-      if (pendingFull) {
+      if (running && pendingFull) {
         pendingFull = false;
         await run(true);
       }
@@ -96,6 +103,8 @@ export function createPoller({
     stop() {
       running = false;
       clearTimer(timer);
+      timer = null;
+      pendingFull = false;
     },
     /** 操作完成、窗口重新显示、系统唤醒后调用：立即完整刷新。 */
     kick: () => run(true),

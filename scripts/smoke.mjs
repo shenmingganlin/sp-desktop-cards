@@ -50,7 +50,7 @@ async function run(name, { mutate, settings = ALL, extraEnv = {}, expect, data: 
   const userData = path.join(dir, "user-data");
   fs.rmSync(dir, { recursive: true, force: true });
   fs.mkdirSync(userData, { recursive: true });
-  fs.writeFileSync(path.join(userData, "settings.json"), JSON.stringify(settings));
+  fs.writeFileSync(path.join(userData, "settings.json"), JSON.stringify({ ...settings, autoUpdate: false, openAtLogin: false }));
   const env = { ...process.env, SPW_SMOKE_DIR: dir, SPW_USER_DATA: userData, SPW_BASE_URL: sp.url, SPW_TOKEN: sp.token, ...extraEnv };
   // SPW_EXE 指向打包好的程序时检查打包产物，否则用开发版 electron 跑源码。
   const child = process.env.SPW_EXE
@@ -138,13 +138,15 @@ results.push(await run("empty", {
   const legacy = path.join(dir, "SP 今日小窗");
   const now = path.join(dir, "SP 桌面卡片");
   fs.mkdirSync(legacy, { recursive: true });
-  fs.writeFileSync(path.join(legacy, "settings.json"), JSON.stringify({ version: 2, tourDone: true, mode: "normal", opacity: 0.66, cards: { today: { visible: true, bounds: { x: 200, y: 150, width: 320, height: 400 } } } }));
+  fs.writeFileSync(path.join(legacy, "settings.json"), JSON.stringify({ version: 2, tourDone: true, mode: "normal", autoUpdate: false, openAtLogin: false, opacity: 0.66, cards: { today: { visible: true, bounds: { x: 200, y: 150, width: 320, height: 400 } } } }));
   // 新目录已经被 Chromium 建出来（空的）：实际升级时经常是这样
   fs.mkdirSync(now, { recursive: true });
   const data = sampleData(Date.now());
   const sp = await startFakeSp({ data });
   const env = { ...process.env, SPW_SMOKE_DIR: dir, SPW_HOME: dir, SPW_BASE_URL: sp.url, SPW_TOKEN: sp.token };
-  const child = spawn(electron, [root], { env, stdio: "inherit" });
+  const child = process.env.SPW_EXE
+    ? spawn(process.env.SPW_EXE, [], { env, stdio: "inherit" })
+    : spawn(electron, [root], { env, stdio: "inherit" });
   const code = await new Promise((resolve) => {
     const timer = setTimeout(() => { child.kill(); resolve("timeout"); }, 40000);
     child.on("exit", (c) => { clearTimeout(timer); resolve(c); });

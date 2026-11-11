@@ -46,6 +46,20 @@ test("今天是哪天：TODAY 标签挂在别的日期的任务上时，不跟�
   assert.equal(resolveToday(list, lateNight, 0), "2026-11-03");
 });
 
+test("今天是哪天：白天还挂着昨天的任务时，不能把今天算成昨天", () => {
+  // 回归：以前只要差一天以内就采信第一条，于是白天列表里一条没清掉的昨日任务
+  // 会把「今天」定成昨天，「没做完的排到明天」就写成了今天 —— 等于没排。
+  const noon = new Date(2026, 10, 8, 12, 0).getTime();
+  assert.equal(resolveToday([task({ dueDay: "2026-11-07" })], noon, 0), "2026-11-08");
+  assert.equal(resolveToday([task({ dueDay: "2026-11-09" })], noon, 0), "2026-11-08");
+  // 凌晨仍然采信差一天的那个：SP 的日界不在 0 点时，这就是正常的
+  const dawn = new Date(2026, 10, 8, 1, 30).getTime();
+  assert.equal(resolveToday([task({ dueDay: "2026-11-07" })], dawn, 0), "2026-11-07");
+  // 白天有对得上的任务时，用对得上的那个
+  const list = [task({ dueDay: "2026-11-07" }), task({ dueDay: "2026-11-08" })];
+  assert.equal(resolveToday(list, noon, 0), "2026-11-08");
+});
+
 test("今日列表：带时间的按时间排前，其余按 SP 今日视图顺序", () => {
   const v = view();
   assert.equal(v.today, TODAY);
@@ -173,6 +187,19 @@ test("结束这一天：归档的就是卡片上「已完成」那一组，所�
   assert.deepEqual(v.wrapUp.doneIds, ids(v.done));
   // 今天没做完的不该被归档
   assert.ok(!v.wrapUp.doneIds.includes("standup"));
+});
+
+test("结束这一天：单独出现的已完成子任务不列进归档，并说明有几项", () => {
+  // 回归：父任务不在今日列表、只有子任务在时，以前会把子任务 id 交给归档，
+  // 而 SP 拒绝单独归档子任务 —— 菜单点了必然失败。
+  // 归档父任务又会把没做完的兄弟任务一起搬走，所以也不能自动上溯到父任务。
+  const data = sampleData();
+  const child = data.allTasks.find((t) => t.id === "c1");
+  data.todayTasks = [child];
+  const v = buildView(data);
+  assert.deepEqual(v.wrapUp.doneIds, [], "子任务不能单独归档");
+  assert.equal(v.wrapUp.doneSubtaskCount, 1, "要告诉用户有几项被跳过");
+  assert.equal(v.wrapUp.isEmpty, false, "有已完成的东西就不算空");
 });
 
 test("结束这一天：父任务和子任务都排了今天时，只排父任务一次", () => {

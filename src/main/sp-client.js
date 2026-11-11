@@ -27,27 +27,44 @@ export const HINTS = {
 };
 
 export function createClient({ baseUrl = DEFAULT_BASE_URL, getToken, fetchImpl = fetch, timeoutMs = TIMEOUT_MS }) {
+  const isRecord = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
+
   async function request(method, path, body) {
     const token = await getToken();
     if (!token) throw new SpError("SP_NO_TOKEN", HINTS.SP_NO_TOKEN);
     const headers = { Authorization: `Bearer ${token}`, Accept: "application/json" };
     if (body !== undefined) headers["Content-Type"] = "application/json";
+    const writing = /^(POST|PATCH|PUT|DELETE)$/i.test(method);
+    // 令牌、序列化和超时参数在交给网络之前检查；这些失败不会有已提交的写入。
+    const options = {
+      method,
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: AbortSignal.timeout(timeoutMs),
+    };
+    const unknown = (error) => {
+      if (writing) error.outcomeUnknown = true;
+      return error;
+    };
+    const networkError = (error, status = null) => unknown(new SpError(
+      error?.name === "TimeoutError" || error?.name === "AbortError" ? "SP_TIMEOUT" : "SP_UNREACHABLE",
+      error?.name === "TimeoutError" || error?.name === "AbortError" ? HINTS.SP_TIMEOUT : HINTS.SP_UNREACHABLE,
+      status,
+    ));
 
     let response;
+    try {
+      response = await fetchImpl(baseUrl + path, options);
+    } catch (error) {
+      throw networkError(error);
+    }
+    // 401 已明确拒绝执行，不依赖错误正文能否读完。
+    if (response.status === 401) throw new SpError("SP_UNAUTHORIZED", HINTS.SP_UNAUTHORIZED, 401);
     let text;
     try {
-      response = await fetchImpl(baseUrl + path, {
-        method,
-        headers,
-        body: body === undefined ? undefined : JSON.stringify(body),
-        signal: AbortSignal.timeout(timeoutMs),
-      });
       text = await response.text();
     } catch (error) {
-      if (error?.name === "TimeoutError" || error?.name === "AbortError") {
-        throw new SpError("SP_TIMEOUT", HINTS.SP_TIMEOUT);
-      }
-      throw new SpError("SP_UNREACHABLE", HINTS.SP_UNREACHABLE);
+      throw networkError(error, response.status);
     }
 
     let payload = null;
@@ -56,25 +73,75 @@ export function createClient({ baseUrl = DEFAULT_BASE_URL, getToken, fetchImpl =
     } catch {
       // 非 JSON 时按状态码处理
     }
-    const code = payload?.error?.code;
-    if (response.status === 401) throw new SpError("SP_UNAUTHORIZED", HINTS.SP_UNAUTHORIZED, 401);
-    if (response.status === 503 && code === "API_DISABLED") throw new SpError("SP_API_DISABLED", HINTS.SP_API_DISABLED, 503);
-    if (response.status === 503 && code === "APP_NOT_READY") throw new SpError("SP_NOT_READY", HINTS.SP_NOT_READY, 503);
-    if (!response.ok || payload?.ok === false) {
-      throw new SpError(code || `SP_HTTP_${response.status}`, payload?.error?.message || `SP 返回 ${response.status}`, response.status);
+    const rejected = isRecord(payload) && payload.ok === false && isRecord(payload.error) &&
+      typeof payload.error.code === "string" && payload.error.code.trim().length > 0;
+    if (rejected) {
+      const code = payload.error.code;
+      if (response.status === 503 && code === "API_DISABLED") throw new SpError("SP_API_DISABLED", HINTS.SP_API_DISABLED, 503);
+      if (response.status === 503 && code === "APP_NOT_READY") throw new SpError("SP_NOT_READY", HINTS.SP_NOT_READY, 503);
+      const error = new SpError(code, typeof payload.error.message === "string" && payload.error.message || `SP 返回 ${response.status}`, response.status);
+      // 明确业务拒绝保留原错误；通用 5xx 即使有正文也不能证明提交已回滚。
+      throw response.status >= 500 ? unknown(error) : error;
     }
-    if (payload?.ok !== true || !("data" in payload)) {
-      throw new SpError("SP_BAD_RESPONSE", HINTS.SP_BAD_RESPONSE, response.status);
+    if (!response.ok) {
+      const error = new SpError(`SP_HTTP_${response.status}`, `SP 返回 ${response.status}`, response.status);
+      // 无有效业务拒绝的 5xx 可能出现在提交之后；普通 4xx 仍按 HTTP 拒绝处理。
+      throw response.status >= 400 && response.status < 500 ? error : unknown(error);
+    }
+    if (!isRecord(payload) || payload.ok !== true || !Object.hasOwn(payload, "data")) {
+      throw unknown(new SpError("SP_BAD_RESPONSE", HINTS.SP_BAD_RESPONSE, response.status));
+    }
+    if (/^POST$/i.test(method) && path === "/tasks" &&
+        (!isRecord(payload.data) || typeof payload.data.id !== "string" || !payload.data.id.trim() || typeof payload.data.title !== "string")) {
+      throw unknown(new SpError("SP_BAD_RESPONSE", HINTS.SP_BAD_RESPONSE, response.status));
     }
     return payload.data;
   }
 
   const list = async (path) => {
     const data = await request("GET", path);
-    if (!Array.isArray(data)) throw new SpError("SP_BAD_RESPONSE", HINTS.SP_BAD_RESPONSE);
+    // 先拒绝坏条目，避免它覆盖最后一份可用快照后把所有卡片的视图构建一起带倒。
+    if (!Array.isArray(data) || data.some((item) => !item || typeof item !== "object" || Array.isArray(item))) {
+      throw new SpError("SP_BAD_RESPONSE", HINTS.SP_BAD_RESPONSE);
+    }
     return data;
   };
   const id = (v) => encodeURIComponent(v);
+  const doneWrites = new Map();
+  let trackingWrites = Promise.resolve();
+
+  // 跨卡片按任务串行，必须在异步读取令牌之前排队，失败也不能堵住下一次意图。
+  function setDone(taskId, isDone) {
+    const write = (doneWrites.get(taskId) || Promise.resolve()).catch(() => {}).then(() =>
+      request("PATCH", `/tasks/${id(taskId)}`, { isDone }));
+    doneWrites.set(taskId, write);
+    const release = () => { if (doneWrites.get(taskId) === write) doneWrites.delete(taskId); };
+    write.then(release, release);
+    return write;
+  }
+
+  // SP 全局只有一个当前计时任务。开始/停止跨卡片、番茄钟共用同一 FIFO，
+  // 在 request 异步读取令牌之前排队；失败只释放下一次明确操作，不重放旧请求。
+  function queueTracking(work) {
+    const write = trackingWrites.then(work);
+    trackingWrites = write.catch(() => {});
+    return write;
+  }
+
+  const track = (path) => queueTracking(() => request("POST", path));
+
+  function stopIfCurrent(taskId) {
+    return queueTracking(async () => {
+      const current = await request("GET", "/task-control/current");
+      if (current !== null && (!isRecord(current) || typeof current.id !== "string" || !current.id.trim())) {
+        throw new SpError("SP_BAD_RESPONSE", HINTS.SP_BAD_RESPONSE);
+      }
+      if (!current || current.id !== taskId) return { currentTaskId: current?.id ?? null };
+      // 检查和停止占同一个本机队列单元，不让后来的 start 插在中间。
+      // SP 自己或其他客户端仍可能改计时状态；此 API 不提供跨进程原子比较后停止。
+      return request("POST", "/task-control/stop");
+    });
+  }
 
   return {
     request,
@@ -92,12 +159,13 @@ export function createClient({ baseUrl = DEFAULT_BASE_URL, getToken, fetchImpl =
     /** fields 只放 SP 允许写的字段；标题里的简写语法（#标签 +项目 @时间）由 SP 解析。 */
     createTask: (fields) => request("POST", "/tasks", fields),
     deleteTask: (taskId) => request("DELETE", `/tasks/${id(taskId)}`),
-    setDone: (taskId, isDone) => request("PATCH", `/tasks/${id(taskId)}`, { isDone }),
+    setDone,
     /** 归档：SP 会连子任务一起搬走。子任务不能单独归档，SP 回 400。 */
     archiveTask: (taskId) => request("POST", `/tasks/${id(taskId)}/archive`),
     /** 改任务的任意字段（排到今天、清掉钟点等）。SP 19.x 实测支持 dueDay / dueWithTime，清空传 null。 */
     patchTask: (taskId, fields) => request("PATCH", `/tasks/${id(taskId)}`, fields),
-    start: (taskId) => request("POST", `/tasks/${id(taskId)}/start`),
-    stop: () => request("POST", "/task-control/stop"),
+    start: (taskId) => track(`/tasks/${id(taskId)}/start`),
+    stop: () => track("/task-control/stop"),
+    stopIfCurrent,
   };
 }

@@ -180,13 +180,20 @@ export function sanitize(input, base = DEFAULTS) {
   return s;
 }
 
-export function createSettingsStore(dir) {
+export function createSettingsStore(dir, { readOnly = false } = {}) {
   const file = path.join(dir, "settings.json");
   let data = sanitize(null);
   try {
-    data = sanitize(migrate(JSON.parse(fs.readFileSync(file, "utf8"))));
-  } catch {
-    // 第一次运行或文件损坏：用默认值
+    const text = fs.readFileSync(file, "utf8");
+    try {
+      data = sanitize(migrate(JSON.parse(text)));
+    } catch {
+      // 已经读到内容但 JSON 损坏：用默认值，后续允许重新保存。
+    }
+  } catch (error) {
+    // ENOENT 才是第一次运行。读取被锁住、权限/磁盘异常时，不知道原设置是什么，
+    // 本次启动只在内存里改，不能用默认值覆盖它；下次启动再尝试读取。
+    if (error?.code !== "ENOENT") readOnly = true;
   }
   let timer = null;
   // 写盘是同步 fs，磁盘满、目录只读、杀软锁住 .tmp 都会抛。
@@ -196,6 +203,7 @@ export function createSettingsStore(dir) {
   const flush = () => {
     clearTimeout(timer);
     timer = null;
+    if (readOnly) return;
     try {
       fs.mkdirSync(dir, { recursive: true });
       const tmp = `${file}.tmp`;
@@ -211,8 +219,10 @@ export function createSettingsStore(dir) {
     update(patch) {
       data = sanitize(patch, data);
       // 拖动窗口时会连续触发，合并成一次写盘。
-      clearTimeout(timer);
-      timer = setTimeout(flush, 400);
+      if (!readOnly) {
+        clearTimeout(timer);
+        timer = setTimeout(flush, 400);
+      }
       return copy();
     },
     /** 改一张卡片：updateCard("today", { bounds }) */

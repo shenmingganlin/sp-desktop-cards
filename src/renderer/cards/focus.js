@@ -112,7 +112,7 @@
     },
     sig(state) {
       const m = model(state);
-      return [m.kind, m.buttons, state.pomodoro?.phase, m.progress === null];
+      return [m.kind, m.buttons, state.pomodoro?.phase, m.progress === null, !!state.pomodoro?.cfg?.confirmStop];
     },
     render(body, state) {
       const m = model(state);
@@ -150,7 +150,7 @@
     foot(state) {
       const out = [`今天 ${state.pomodoro?.doneToday ?? 0} 个番茄`];
       const v = state.view;
-      if (v) out.push(`已用 ${W.duration(v.stats.spentToday + (state.ticking?.task ? W.sinceSnapshot() : 0))}`);
+      if (v) out.push(`已用 ${W.duration(v.stats.spentToday + (state.ticking?.task ? W.sinceListsSnapshot() : 0))}`);
       return out.join(" · ");
     },
   });

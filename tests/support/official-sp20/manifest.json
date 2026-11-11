@@ -1,0 +1,41 @@
+{
+  "installedVersion": "20.0.0",
+  "sourceArchive": "Super Productivity 20.0.0/resources/app.asar",
+  "sourceArchiveSha256": "1a3ac279e8b861fa92c907cd92a400dccf72de6737d4240a0e1307d14c6f4e1e",
+  "note": "Unmodified sourcesContent selected from installed application JS source maps; no user data or settings.",
+  "files": [
+    {
+      "path": "src/app/features/tag/tag.const.ts",
+      "sha256": "e5eae5b52766e2fcbeb75243bfb1fa1d537d2a8c6761a7fe384ce74ae421b8cc"
+    },
+    {
+      "path": "src/app/features/boards/boards.model.ts",
+      "sha256": "0bad39a72da2f68ca56b4b64d319f18baafdb5c44d460d0a072f10257c029389"
+    },
+    {
+      "path": "src/app/features/boards/boards.const.ts",
+      "sha256": "adf8d7adaca1c2555e5485fa2acb73384fb4314f4314fe71604f8aa7ac0f3b7f"
+    },
+    {
+      "path": "src/app/features/boards/boards.util.ts",
+      "sha256": "ecd96365150293ae8f3a5a5a88f1314c19a32ee178c500367ea75d2a3d604462"
+    },
+    {
+      "path": "src/app/features/boards/board-panel/panel-rules.ts",
+      "sha256": "5a1f766f067a725d4f858f7a4c9a30ac56388252c76f748a014ba32a727f3534"
+    },
+    {
+      "path": "src/app/features/tasks/task-criteria/task-criteria.model.ts",
+      "sha256": "2d626b67c83aedc187ecf669739e9d330e80e8090585afc03b218c4c1392ee41"
+    },
+    {
+      "path": "src/app/features/tasks/task-criteria/task-criteria.ts",
+      "sha256": "1080312c84f081b4e8f46be0e7e28156f2af898d66f9b8b23c3b0d3e2d902e95"
+    },
+    {
+      "path": "src/app/root-store/meta/task-shared-meta-reducers/task-shared-crud.reducer.ts",
+      "map": ".tmp/angular-dist/browser/chunk-9jkoFDZj.js.map",
+      "sha256": "61612ed5242486484e52dc1fdcb6b6afd9065e5dc98d9e36ed107bdad2955eca"
+    }
+  ]
+}

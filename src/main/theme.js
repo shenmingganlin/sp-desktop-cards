@@ -51,15 +51,25 @@ const DARK_SKINS = new Set(["dark", "midnight", "midnight-contrast"]);
 export const isLightSkin = (id) => !DARK_SKINS.has(normalizeSkin(id) || DEFAULT_SKIN);
 export const skinOf = (id) => SKINS.find((s) => s.id === normalizeSkin(id)) || SKINS[0];
 
-/** 读外部主题文件；不存在、JSON 坏了、皮肤名不认识都当没有。 */
-export function readExternal(file) {
+// 读取失败保留异常，让 watcher 与“已读到无效内容”区分，下一轮仍能重试。
+function readExternalFile(file) {
+  const text = fs.readFileSync(file, "utf8");
   try {
-    const data = JSON.parse(fs.readFileSync(file, "utf8"));
+    const data = JSON.parse(text);
     if (!data || typeof data !== "object") return null;
     const theme = normalizeSkin(data.theme);
     if (!theme) return null;
     const source = typeof data.source === "string" ? data.source.trim().slice(0, 40) : "";
     return { theme, source: source || "外部程序" };
+  } catch {
+    return null;
+  }
+}
+
+/** 读外部主题文件；不存在、JSON 坏了、皮肤名不认识都当没有。 */
+export function readExternal(file) {
+  try {
+    return readExternalFile(file);
   } catch {
     return null;
   }
@@ -84,12 +94,19 @@ export function watchExternal(file, onChange, { interval = 2000 } = {}) {
     let mtime = 0;
     try {
       mtime = fs.statSync(file).mtimeMs;
-    } catch {
-      mtime = 0;
+    } catch (error) {
+      if (error?.code !== "ENOENT") return;
     }
     if (mtime === last) return;
+    let value;
+    try {
+      value = mtime ? readExternalFile(file) : null;
+    } catch {
+      // stat 成功不代表能读：文件锁等短暂故障不提交 mtime，下次继续尝试。
+      return;
+    }
     last = mtime;
-    onChange(mtime ? readExternal(file) : null);
+    onChange(value);
   };
   tick();
   const timer = setInterval(tick, interval);

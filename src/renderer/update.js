@@ -11,7 +11,13 @@
       if (window.WTheme) window.WTheme.apply(e.theme);
       return;
     }
-    if (e.type === "progress") {
+    if (e.type === "start") {
+      $("title").textContent = "正在下载更新";
+      $("detail").textContent = "连上 GitHub 拿安装包…";
+      $("fill").style.width = "0%";
+      $("cancel").hidden = false;
+      $("close").hidden = true;
+    } else if (e.type === "progress") {
       const percent = Math.max(0, Math.min(1, Number(e.percent) || 0));
       $("fill").style.width = `${Math.round(percent * 100)}%`;
       const pct = `${Math.round(percent * 100)}%`;
@@ -31,4 +37,6 @@
 
   $("cancel").addEventListener("click", () => window.widget.action("cancel"));
   $("close").addEventListener("click", () => window.widget.action("close"));
+  // 页面可能在下载开始后才就绪，请主进程补发最近一次状态。
+  void window.widget.action("updateReady");
 })();

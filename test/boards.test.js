@@ -8,7 +8,7 @@ const MIN = 60_000;
 const ids = (list) => list.map((e) => e.id);
 const build = (raw, preset = "kanban", opts = {}) => buildBoard(raw, { preset, today: TODAY, now: NOW, ...opts });
 
-// SP 的默认标签：看板第一次打开时 SP 自己建，id 是写死的
+// SP 的默认标签：在看板缺标签提示中点击创建后建立，id 是写死的
 const boardTags = [
   { id: KANBAN_IN_PROGRESS, title: "in-progress", taskIds: [] },
   { id: EM_URGENT, title: "urgent", taskIds: [] },
@@ -61,7 +61,7 @@ test("艾森豪威尔矩阵：四个象限按两个标签的组合分，互不�
     task({ id: "urgent", tagIds: [EM_URGENT] }),
     task({ id: "neither" }),
   ]), "eisenhower");
-  assert.deepEqual(v.columns.map((c) => c.id), ["URGENT_AND_IMPORTANT", "NOT_URGENT_AND_IMPORTANT", "URGENT_AND_NOT_IMPORTANT", "NOT_URGENT_NOT_IMPORTANT"]);
+  assert.deepEqual(v.columns.map((c) => c.id), ["URGENT_AND_IMPORTANT", "NOT_URGENT_AND_IMPORTANT", "URGENT_AND_NOT_IMPORTANT", "NOT_URGENT_AND_NOT_IMPORTANT"]);
   assert.deepEqual(v.columns.map((c) => c.title), ["重要且紧急", "重要不紧急", "紧急不重要", "不紧急不重要"]);
   assert.deepEqual(v.columns.map((c) => ids(c.tasks)), [["both"], ["important"], ["urgent"], ["neither"]]);
   // 每条任务正好在一个象限里
@@ -95,9 +95,9 @@ test("缺的标签只影响包含它的那一列，排除它的列不受影响",
   assert.ok(!v.blankColumns.includes("TODO"));
 });
 
-test("艾森豪威尔缺标签时四个象限都会空，提示要说明白", () => {
+test("艾森豪威尔缺标签时前三个象限为空，未分类任务仍显示", () => {
   const v = build({ allTasks: [task({ id: "a" })], projects: [], tags: [] }, "eisenhower");
-  assert.deepEqual(v.missingTags, [EM_URGENT, EM_IMPORTANT]);
+  assert.deepEqual(v.missingTags, [EM_IMPORTANT, EM_URGENT]);
   // 除了「不紧急不重要」，另外三个象限都靠这两个标签
   assert.deepEqual(v.blankColumns, ["URGENT_AND_IMPORTANT", "NOT_URGENT_AND_IMPORTANT", "URGENT_AND_NOT_IMPORTANT"]);
   // 但列本身照画：任务掉进「不紧急不重要」是真话，不是 bug
@@ -156,10 +156,8 @@ test("标签都在时不报缺标签，也没有空列提示", () => {
   assert.deepEqual(v.blankColumns, []);
 });
 
-test("标签 ID 不是 SP 写死的那种时，按名字认出来", () => {
-  // 用户可能从 SP 界面或插件 API 建同名标签，ID 就是随机的。
-  // 只按写死 ID 匹配的话，看板会显示「没有 in-progress 标签」并把列留空，
-  // 而用户明明建了 —— 这正是「SP 里有数据但卡片没有」的另一种形态。
+test("同名普通标签不能替代 SP 默认看板的系统标签", () => {
+  // 官方默认列匹配固定 ID。普通标签碰巧同名不能让任务在卡片和 SP 中分到不同列。
   const v = build({
     allTasks: [
       task({ id: "todo" }),
@@ -169,20 +167,23 @@ test("标签 ID 不是 SP 写死的那种时，按名字认出来", () => {
     projects: [],
     tags: [{ id: "random-id-1", title: "in-progress", taskIds: [] }],
   });
-  assert.deepEqual(v.missingTags, [], "名字对上了就不算缺");
-  assert.deepEqual(ids(v.columns[0].tasks), ["todo"]);
-  assert.deepEqual(ids(v.columns[1].tasks), ["doing"], "进行中列要真的分出来");
+  assert.deepEqual(v.missingTags, [KANBAN_IN_PROGRESS], "同名不代表系统标签已创建");
+  assert.deepEqual(v.sameNameTagLabels, ["in-progress"]);
+  assert.deepEqual(ids(v.columns[0].tasks), ["todo", "doing"]);
+  assert.deepEqual(ids(v.columns[1].tasks), [], "普通同名标签不满足官方进行中规则");
   assert.deepEqual(ids(v.columns[2].tasks), ["done"]);
 });
 
-test("名字按大小写不敏感匹配，SP 里叫 In-Progress 也认", () => {
+test("普通标签大小写变化只影响同名提示，不改变固定 ID 分类", () => {
   const v = build({
     allTasks: [task({ id: "doing", tagIds: ["x"] })],
     projects: [],
     tags: [{ id: "x", title: "In-Progress", taskIds: [] }],
   });
-  assert.deepEqual(v.missingTags, []);
-  assert.deepEqual(ids(v.columns[1].tasks), ["doing"]);
+  assert.deepEqual(v.missingTags, [KANBAN_IN_PROGRESS]);
+  assert.deepEqual(v.sameNameTagLabels, ["in-progress"]);
+  assert.deepEqual(ids(v.columns[0].tasks), ["doing"]);
+  assert.deepEqual(ids(v.columns[1].tasks), []);
 });
 
 test("写死 ID 存在时优先用它，不受同名标签干扰", () => {
@@ -262,6 +263,37 @@ test("底栏的「预估剩余」要真的算出来，不能永远 0", () => {
   assert.equal(v.counts.left, 80 * MIN, "20 + 60，已完成的不算");
 });
 
+test("底栏的「预估剩余」不把父子任务算两遍", () => {
+  // 回归：父行已经是未完成子任务的合计，子任务又各占一行时，
+  // 底栏把两行都加了 —— 实际剩 30 分钟，底栏显示 60 分钟。
+  const raw = withTags([
+    task({ id: "p", subTaskIds: ["c"], timeEstimate: 90 * MIN }),
+    task({ id: "c", parentId: "p", timeEstimate: 30 * MIN }),
+  ]);
+  const v = build(raw);
+  assert.equal(v.counts.left, 30 * MIN, "父行已经代表子任务，只算一次");
+  // 矩阵只看父任务：父任务在板上，就照父任务的合计算，不能因为子任务不在就算 0
+  const m = build(raw, "eisenhower");
+  assert.equal(m.counts.left, 30 * MIN, "父任务在矩阵里代表整组");
+});
+
+test("矩阵的「未分类」看的是矩阵里看得见的任务", () => {
+  // 回归：只有子任务打过 urgent 时，以前会让第四格恢复叫「不紧急不重要」，
+  // 可矩阵只显示父任务、那条子任务根本不出现 —— 用户看到的全是没分类的父任务。
+  const raw = withTags([
+    task({ id: "p", subTaskIds: ["c"] }),
+    task({ id: "c", parentId: "p", tagIds: [EM_URGENT] }),
+  ]);
+  const v = build(raw, "eisenhower");
+  assert.equal(v.columns[3].title, "未分类");
+  // 父任务自己打过标，就照 SP 的名字叫
+  const tagged = build(withTags([
+    task({ id: "p", subTaskIds: ["c"], tagIds: [EM_IMPORTANT] }),
+    task({ id: "c", parentId: "p", tagIds: [EM_URGENT] }),
+  ]), "eisenhower");
+  assert.equal(tagged.columns[3].title, "不紧急不重要");
+});
+
 test("重复任务的实例要在行上标出来，换列才知道只改了今天这一条", () => {
   // SP 的重复任务每天生成一个新实例，实例有自己的 tagIds，模板另存一份。
   // 看板换列只 PATCH 实例 —— 明天的新实例还回原列。
@@ -307,14 +339,13 @@ test("看板换列：进行中 → 待办，摘掉 in-progress，别的标签留
 test("看板换列：已经在目标列时不重复加标签", () => {
   const raw = withTags([task({ id: "a", tagIds: [KANBAN_IN_PROGRESS] })]);
   const next = moveTaskToColumn(raw, { taskId: "a", columnId: "IN_PROGRESS", preset: "kanban" });
-  assert.deepEqual(next.tagIds, [KANBAN_IN_PROGRESS], "不能变成两个一样的标签");
+  assert.deepEqual(next, {}, "已经满足目标规则时不应写补丁，更不能重复加标签");
 });
 
-test("看板换列：已完成列靠 isDone，不靠标签", () => {
-  const raw = withTags([task({ id: "a", tagIds: ["keep-me"] })]);
+test("看板换列：已完成列没有标签约束，只写 isDone", () => {
+  const raw = withTags([task({ id: "a", tagIds: ["keep-me", KANBAN_IN_PROGRESS] })]);
   const next = moveTaskToColumn(raw, { taskId: "a", columnId: "DONE", preset: "kanban" });
-  assert.deepEqual(next.tagIds, ["keep-me"], "标签原样");
-  assert.equal(next.isDone, true);
+  assert.deepEqual(next, { isDone: true }, "本地换列只请求完成；SP 的完成清理副作用由官方契约测试校验");
 });
 
 test("看板换列：从已完成拖回待办，要取消完成", () => {
@@ -326,11 +357,14 @@ test("看板换列：从已完成拖回待办，要取消完成", () => {
 
 test("矩阵换列：四个格子按两个标签的组合来", () => {
   const raw = withTags([task({ id: "a" })]);
-  const set = (columnId) => moveTaskToColumn(raw, { taskId: "a", columnId, preset: "eisenhower" }).tagIds.sort();
+  const set = (columnId) => {
+    const patch = moveTaskToColumn(raw, { taskId: "a", columnId, preset: "eisenhower" });
+    return [...(patch.tagIds ?? raw.allTasks[0].tagIds)].sort();
+  };
   assert.deepEqual(set("URGENT_AND_IMPORTANT"), [EM_IMPORTANT, EM_URGENT].sort());
   assert.deepEqual(set("NOT_URGENT_AND_IMPORTANT"), [EM_IMPORTANT]);
   assert.deepEqual(set("URGENT_AND_NOT_IMPORTANT"), [EM_URGENT]);
-  assert.deepEqual(set("NOT_URGENT_NOT_IMPORTANT"), [], "两个标签都摘掉");
+  assert.deepEqual(set("NOT_URGENT_AND_NOT_IMPORTANT"), [], "不新增两个系统标签");
 });
 
 test("矩阵换列：从「重要且紧急」挪到「重要不紧急」，摘掉 urgent 留着 important", () => {
@@ -339,11 +373,13 @@ test("矩阵换列：从「重要且紧急」挪到「重要不紧急」，摘�
   assert.deepEqual(next.tagIds, [EM_IMPORTANT]);
 });
 
-test("换列时标签按名字解析，不只认写死 ID", () => {
-  // 和分列同一套道理：用户手建的 in-progress（ID 随机）也要认。
+test("换列保留普通同名标签，新增进行中状态必须有系统标签", () => {
   const raw = { allTasks: [task({ id: "a", tagIds: ["random-ip"] })], projects: [], tags: [{ id: "random-ip", title: "in-progress", taskIds: [] }] };
   const next = moveTaskToColumn(raw, { taskId: "a", columnId: "TODO", preset: "kanban" });
-  assert.deepEqual(next.tagIds, [], "摘掉的是那个真实存在的同名标签");
+  assert.deepEqual(next, {}, "普通同名标签不归默认看板管理，不应被摘掉");
+  assert.throws(() => moveTaskToColumn(raw, { taskId: "a", columnId: "IN_PROGRESS", preset: "kanban" }), /系统标签/);
+  const ready = { ...raw, tags: [...raw.tags, { id: KANBAN_IN_PROGRESS, title: "正在处理" }] };
+  assert.deepEqual(moveTaskToColumn(ready, { taskId: "a", columnId: "IN_PROGRESS", preset: "kanban" }).tagIds, ["random-ip", KANBAN_IN_PROGRESS]);
 });
 
 test("换列：不认识的列 / 找不到的任务都明确报错，不静默改坏", () => {

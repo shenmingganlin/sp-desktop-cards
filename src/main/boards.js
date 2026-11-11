@@ -5,11 +5,11 @@
 // 所以小窗读不到用户改过的列 —— 只能按 SP 出厂的那两个默认看板分。
 // 这不是「猜」，是 SP 自己的定义；用户若在 SP 里改过列，两边会不一样，卡片上要说清楚。
 //
-// 标签 id 是 SP 写死的（第一次打开看板时它自己建这几个标签）：
+// 标签 id 是 SP 写死的（在看板缺标签提示中点击创建后建立）：
 //   KANBAN_IN_PROGRESS  in-progress
 //   EM_URGENT           urgent
 //   EM_IMPORTANT        important
-// 少一个标签，对应的列就永远是空的 —— 要明确告诉用户，不能显示成「你没有重要的事」。
+// 缺标签时禁止新添这个 ID；已有任务仍按自己的 tagIds 分列，不能改用同名标签。
 
 import { isDay, isTimestamp, left } from "./model.js";
 
@@ -46,10 +46,10 @@ export const BOARD_PRESETS = Object.freeze({
     title: "艾森豪威尔矩阵",
     cols: 2,
     panels: [
-      { id: "URGENT_AND_IMPORTANT", title: "重要且紧急", includedTagIds: [EM_URGENT, EM_IMPORTANT], excludedTagIds: [], taskIds: [], doneState: DONE_ALL, noBacklog: false, parentsOnly: true },
+      { id: "URGENT_AND_IMPORTANT", title: "重要且紧急", includedTagIds: [EM_IMPORTANT, EM_URGENT], excludedTagIds: [], taskIds: [], doneState: DONE_ALL, noBacklog: false, parentsOnly: true },
       { id: "NOT_URGENT_AND_IMPORTANT", title: "重要不紧急", includedTagIds: [EM_IMPORTANT], excludedTagIds: [EM_URGENT], taskIds: [], doneState: DONE_ALL, noBacklog: false, parentsOnly: true },
       { id: "URGENT_AND_NOT_IMPORTANT", title: "紧急不重要", includedTagIds: [EM_URGENT], excludedTagIds: [EM_IMPORTANT], taskIds: [], doneState: DONE_ALL, noBacklog: false, parentsOnly: true },
-      { id: "NOT_URGENT_NOT_IMPORTANT", title: "不紧急不重要", includedTagIds: [], excludedTagIds: [EM_URGENT, EM_IMPORTANT], taskIds: [], doneState: DONE_ALL, noBacklog: false, parentsOnly: true },
+      { id: "NOT_URGENT_AND_NOT_IMPORTANT", title: "不紧急不重要", includedTagIds: [], excludedTagIds: [EM_IMPORTANT, EM_URGENT], taskIds: [], doneState: DONE_ALL, noBacklog: false, parentsOnly: true },
     ],
   },
 });
@@ -69,25 +69,8 @@ export function presetTags(presetId) {
 /** 标签 id → SP 里显示的名字，用来在卡片上说清楚缺的是哪个。 */
 export const TAG_LABEL = { [KANBAN_IN_PROGRESS]: "in-progress", [EM_URGENT]: "urgent", [EM_IMPORTANT]: "important" };
 
-/**
- * 把标签 id 解析成「实际在用的那个」：写死 ID 存在就用它，否则按名字找。
- * 分列和换列都要用同一套规则，不然卡片说「已经在进行中」，
- * 换列却摘不掉标签 —— 两边对不上。
- */
-function resolveTagIds(tags, wanted) {
-  const list = (tags || []).filter((t) => t && typeof t.id === "string");
-  const known = new Set(list.map((t) => t.id));
-  const byTitle = new Map(list.map((t) => [String(t.title ?? "").toLowerCase(), t.id]));
-  const resolved = new Map();
-  for (const id of wanted) {
-    if (known.has(id)) resolved.set(id, id);
-    else {
-      const byName = byTitle.get((TAG_LABEL[id] || "").toLowerCase());
-      if (byName) resolved.set(id, byName);
-    }
-  }
-  return resolved;
-}
+// SP 默认看板严格按标签 ID 匹配。改名不改身份，同名普通标签不能替代系统标签。
+const existingTagIds = (tags) => new Set((tags || []).filter((tag) => tag && typeof tag.id === "string").map((tag) => tag.id));
 
 /**
  * 换列：算出把任务挪到某列之后应该写成什么样。
@@ -107,30 +90,33 @@ export function moveTaskToColumn(raw, { taskId, columnId, preset }) {
   const all = (raw?.allTasks || []).filter((t) => t && typeof t.id === "string");
   const target = all.find((t) => t.id === taskId);
   if (!target) throw new Error(`找不到任务：${taskId}`);
+  if (panel.parentsOnly && target.parentId) throw new Error("矩阵只显示父任务，不能把子任务移入这一格。请在 SP 中操作父任务。");
+  if (panel.noBacklog && (raw?.projects || []).some((project) => (project?.backlogTaskIds || []).includes(target.parentId || target.id))) {
+    throw new Error("这个任务仍在项目积压区，请先在 SP 中移出积压区，再换看板列。");
+  }
 
-  const resolved = resolveTagIds(raw?.tags, presetTags(presetKey));
+  const known = existingTagIds(raw?.tags);
   const current = Array.isArray(target.tagIds) ? [...target.tagIds] : [];
 
-  // 这个预设管的标签：先把它们全摘掉，再按目标列的规则加回来。
-  // 只摘当前预设的，不动用户自己的标签（「英语」「习惯」这些）。
-  const managed = new Set([...resolved.values()]);
-  const next = current.filter((id) => !managed.has(id));
+  // 与官方 getTagIdsToMatch 一样，TODAY 是由日期决定的虚拟标签，不写回 task.tagIds。
+  const excluded = new Set(panel.excludedTagIds);
+  const next = current.filter((id) => id !== "TODAY" && !excluded.has(id));
 
   // includedTagIds = 这一列要求全部带上的标签
   for (const wanted of panel.includedTagIds) {
-    const actual = resolved.get(wanted);
-    // 标签在 SP 里压根不存在时加不上 —— 直接报错，别假装换成功了
-    if (actual === undefined) throw new Error(`SP 里还没有「${TAG_LABEL[wanted] || wanted}」标签，先在 SP 里建好才能挪到这一列。`);
-    if (!next.includes(actual)) next.push(actual);
+    if (next.includes(wanted)) continue;
+    // 官方只拒绝本次新增不存在的标签；原任务已有该 ID 时，无需重复创建或写入。
+    if (!known.has(wanted)) throw new Error(`SP 里还没有看板所需的「${TAG_LABEL[wanted] || wanted}」系统标签，请在 SP 对应看板的缺失标签提示中创建；同名普通标签不能替代。`);
+    next.push(wanted);
   }
 
-  const patch = { tagIds: next };
+  const patch = next.length !== current.length || next.some((id, index) => id !== current[index]) ? { tagIds: next } : {};
 
   // 看板的「已完成」列是靠 isDone 分的；矩阵四格都是 doneState=all，
   // 那里的完成状态和列无关，拖动不能顺手把任务勾完成或取消完成。
   if (presetKey === "kanban" && panel.doneState !== DONE_ALL) {
-    const shouldBeDone = panel.doneState === DONE_ONLY;
-    if (target.isDone !== shouldBeDone) patch.isDone = shouldBeDone;
+    if (panel.doneState === DONE_ONLY && !target.isDone) patch.isDone = true;
+    if (panel.doneState === DONE_UN && target.isDone) patch.isDone = false;
   }
 
   return patch;
@@ -156,12 +142,11 @@ export function buildBoard(raw, opts = {}) {
     for (const id of project?.backlogTaskIds || []) backlogIds.add(id);
   }
 
-  // SP 打开看板时会用写死的 ID 建这三个标签，但用户也可能自己在 SP 里或
-  // 通过插件 API 建同名标签 —— 那样的 ID 是随机的。只认写死 ID 的话，
-  // 卡片会说「没有 in-progress 标签」并把列留空，而用户明明建了。
-  // 所以：写死 ID 在就用写死 ID；不在就按名字找，找到哪个用哪个。
-  const resolved = resolveTagIds(raw?.tags, presetTags(presetKey));
-  const missingTags = presetTags(presetKey).filter((id) => !resolved.has(id));
+  const known = existingTagIds(raw?.tags);
+  const missingTags = presetTags(presetKey).filter((id) => !known.has(id));
+  const sameNameTagLabels = missingTags.filter((id) => (raw?.tags || []).some((tag) =>
+    typeof tag?.title === "string" && tag.title.toLowerCase() === TAG_LABEL[id]?.toLowerCase()))
+    .map((id) => TAG_LABEL[id] || id);
 
   const rankOf = new Map(all.map((t, i) => [t.id, i]));
   const row = (t) => {
@@ -188,22 +173,17 @@ export function buildBoard(raw, opts = {}) {
     };
   };
 
-  // 写死 ID 换成人身上实际带着的那个 ID（见上面 resolved）
-  const has = (tags, id) => {
-    const actual = resolved.get(id);
-    return actual !== undefined && tags.includes(actual);
-  };
-
   const matches = (panel, t) => {
     if (panel.doneState === DONE_ONLY && !t.isDone) return false;
     if (panel.doneState === DONE_UN && t.isDone) return false;
     if (panel.parentsOnly && t.parentId) return false;
-    if (panel.noBacklog && backlogIds.has(t.id)) return false;
+    // SP 的子任务继承父任务的积压状态，backlogTaskIds 只列父任务。
+    if (panel.noBacklog && backlogIds.has(t.parentId || t.id)) return false;
     const tags = t.tagIds || [];
     // includedTagIds 是「全都要带上」（矩阵第一格要同时有紧急和重要两个标签）；
     // excludedTagIds 是「一个都不能带」。
-    for (const id of panel.includedTagIds) if (!has(tags, id)) return false;
-    for (const id of panel.excludedTagIds) if (has(tags, id)) return false;
+    for (const id of panel.includedTagIds) if (!tags.includes(id)) return false;
+    for (const id of panel.excludedTagIds) if (tags.includes(id)) return false;
     return true;
   };
 
@@ -212,9 +192,18 @@ export function buildBoard(raw, opts = {}) {
   // 那是在替用户下判断，而他根本没标过任何一条。这时它其实是「还没分类」。
   // 判断看的是「有没有人真打过标」，不是「标签存不存在」：标签建好了却一条没标，
   // 第四格同样是全量任务，名字一样在骗人。
-  const matrixTags = [EM_URGENT, EM_IMPORTANT].map((id) => resolved.get(id)).filter((id) => id !== undefined);
+  const matrixTags = [EM_URGENT, EM_IMPORTANT];
+  // 固定 ID 标签可以改名；指导用户打标时也要用同一实体现在的名称。
+  const matrixTagLabels = presetKey === "eisenhower" ? [EM_URGENT, EM_IMPORTANT].map((id) => {
+    const tag = (raw?.tags || []).find((t) => t?.id === id);
+    return typeof tag?.title === "string" && tag.title.trim() ? tag.title : TAG_LABEL[id];
+  }) : [];
+  // 矩阵只看父任务（parentsOnly），所以判断也得看「板上看得见的那批」。
+  // 只看全部任务的话，一条打过 urgent 的子任务会让第四格恢复叫「不紧急不重要」，
+  // 可矩阵里根本没显示它——用户看到的全是没分类的父任务。
+  const matrixVisible = all.filter((t) => !t.parentId);
   const untaggedBucket = presetKey === "eisenhower" &&
-    !all.some((t) => (t.tagIds || []).some((id) => matrixTags.includes(id)));
+    !matrixVisible.some((t) => (t.tagIds || []).some((id) => matrixTags.includes(id)));
 
   const columns = preset.panels.map((panel) => {
     const tasks = all.filter((t) => matches(panel, t)).map(row);
@@ -223,7 +212,7 @@ export function buildBoard(raw, opts = {}) {
     // 没做完的之间：逾期的最急，其次按计划时刻，都没有的按 SP 里的顺序。
     tasks.sort((a, b) => (a.isDone - b.isDone) || (b.overdue - a.overdue) || (a.dueAt ?? Infinity) - (b.dueAt ?? Infinity) || rankOf.get(a.id) - rankOf.get(b.id));
     const undone = tasks.filter((t) => !t.isDone).length;
-    const bucket = untaggedBucket && panel.id === "NOT_URGENT_NOT_IMPORTANT";
+    const bucket = untaggedBucket && panel.id === "NOT_URGENT_AND_NOT_IMPORTANT";
     return {
       id: panel.id,
       title: bucket ? "未分类" : panel.title,
@@ -231,6 +220,31 @@ export function buildBoard(raw, opts = {}) {
       tasks, count: tasks.length, undoneCount: undone, doneCount: tasks.length - undone,
     };
   });
+
+  // 底栏「预估剩余」：一条任务的工时只能算一次。
+  // 父任务行的 left 已经是它未完成子任务的合计，子任务又各占一行时再加一遍就是双份。
+  // 所以按「祖先优先」去重：一行的祖先也在板上时，只算祖先。
+  // 这和今日卡片的 effort 口径是同一套（见 model.js 的 effortRows）。
+  // 不能简单地跳过带子任务的行——矩阵只显示父任务，那样会算成 0。
+  // 只有「未完成、且自己在板上」的祖先才会吞掉子任务的工时：
+  // 已完成的父任务已经不算工时了，不能让它把还没做完的子任务也挡掉。
+  const undoneIds = new Set(columns.flatMap((c) => c.tasks.filter((r) => !r.isDone).map((r) => r.id)));
+  const leftTotal = columns
+    .flatMap((c) => c.tasks)
+    .filter((r) => !r.isDone)
+    .filter((r) => {
+      // 只往上找父任务：父任务不在板上时，子任务照自己的工时算。
+      // 不往下查子任务——矩阵里父任务的行本来就代表整组。
+      const seen = new Set([r.id]);
+      let parentId = byId.get(r.id)?.parentId;
+      while (typeof parentId === "string" && parentId && !seen.has(parentId)) {
+        if (undoneIds.has(parentId)) return false;
+        seen.add(parentId);
+        parentId = byId.get(parentId)?.parentId;
+      }
+      return true;
+    })
+    .reduce((n, r) => n + r.left, 0);
 
   // 缺标签只是提示，不是错误：SP 自己的看板照样画出来，只在上面挂一条提示。
   // 排除了一个不存在的标签 = 没有东西可排除，待办列照样列出全部任务；
@@ -242,18 +256,21 @@ export function buildBoard(raw, opts = {}) {
     cols: preset.cols,
     columns,
     missingTags,
+    sameNameTagLabels,
+    matrixTagLabels,
     // 卡片上要显示「缺哪个标签」，用 SP 里的名字，不是内部 id
     missingTagLabels: missingTags.map((id) => TAG_LABEL[id] || id),
-    // 有标签缺失时，哪几列会因为缺标签而永远空着（excludedTagIds 那几列不受影响）
+    // 当前为空且缺少所需标签的列；已有任务仍可能携带该 ID，不把整个列判成不可用。
     blankColumns: preset.panels
-      .filter((p) => p.includedTagIds.some((id) => missingTags.includes(id)))
+      .filter((p, index) => columns[index].count === 0 && p.includedTagIds.some((id) => missingTags.includes(id)))
       .map((p) => p.id),
     counts: {
       total: columns.reduce((s, c) => s + c.count, 0),
       done: columns.reduce((s, c) => s + c.tasks.filter((t) => t.isDone).length, 0),
       // 用 row.left，不是 left(row)：left() 读的是 timeEstimate/timeSpent，
       // 行对象上只有 estimate/spent，那样求和永远是 0，底栏的「预估剩余」从不显示。
-      left: columns.reduce((s, c) => s + c.tasks.filter((t) => !t.isDone).reduce((n, t) => n + t.left, 0), 0),
+      // 父子去重见上面的 leftTotal。
+      left: leftTotal,
     },
   };
 }

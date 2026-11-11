@@ -78,10 +78,20 @@
   $("tour").addEventListener("click", () => act("openTour"));
   $("check-update").addEventListener("click", () => act("checkUpdate"));
   $("refresh").addEventListener("click", () => act("refresh"));
+  // 输入过相同文字也算新草稿；旧保存响应只能清空它实际提交的那一版。
+  let tokenDraftVersion = 0;
+  $("token").addEventListener("input", () => { tokenDraftVersion++; });
   $("token-save").addEventListener("click", async () => {
     const input = $("token");
-    const result = await act("setToken", { token: input.value });
-    input.value = "";
+    const token = input.value;
+    const version = tokenDraftVersion;
+    let result;
+    try {
+      result = await act("setToken", { token });
+    } catch (error) {
+      result = { ok: false, message: error?.message || "没保存成功" };
+    }
+    if (result?.ok && tokenDraftVersion === version && input.value === token) input.value = "";
     toast(result?.ok ? "令牌已保存。" : result?.message || "没保存成功");
   });
   $("token").addEventListener("keydown", (e) => {

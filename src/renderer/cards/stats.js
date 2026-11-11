@@ -24,7 +24,7 @@
     sig: (state) => state.view && [state.view.days, state.view.todaySpent, state.view.todayDone, state.view.weekDone, state.pomodoro?.doneToday],
     render(body, state) {
       const v = state.view;
-      const extra = state.ticking?.task ? W.sinceSnapshot() : 0;
+      const extra = state.ticking?.task ? W.sinceListsSnapshot() : 0;
       const todayMs = v.todaySpent + extra;
       const pomo = state.pomodoro || {};
 
@@ -66,7 +66,7 @@
     },
     tick(state) {
       if (!live) return;
-      const ms = live.base + (state.ticking?.task ? W.sinceSnapshot() : 0);
+      const ms = live.base + (state.ticking?.task ? W.sinceListsSnapshot() : 0);
       live.big.textContent = W.duration(ms);
       live.bar.style.height = percent(ms, Math.max(live.peak, ms));
     },

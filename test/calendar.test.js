@@ -89,6 +89,58 @@ test("日程：翻到别的天；块超出设置的时间范围时范围自动�
   assert.equal(buildSchedule(data, { day: "bad" }).day, TODAY);
 });
 
+test("日程：父任务也排在同一天时，保留子任务独立的时间块", () => {
+  const parent = task({ id: "p", dueDay: TODAY, subTaskIds: ["c", "untimed-child"] });
+  const child = task({ id: "c", parentId: "p", dueWithTime: new Date(2026, 10, 2, 14).getTime(), timeEstimate: 30 * MIN });
+  const untimed = task({ id: "untimed-child", parentId: "p", dueDay: TODAY });
+  const raw = { allTasks: [parent, child, untimed], todayTasks: [parent], now: NOW };
+  const s = buildSchedule(raw);
+  assert.deepEqual(ids(s.blocks), ["c"], "父任务的分组不能吞掉子任务的具体时刻");
+  assert.deepEqual(ids(s.untimed), ["p"], "没有独立时刻的子任务仍由父任务代表");
+  assert.equal(s.blocks[0].startMin, 14 * 60);
+  assert.equal(s.blocks[0].parentTitle, parent.title);
+  assert.equal(s.remaining, 30 * MIN, "日程的工时汇总不把父子再加一次");
+  assert.deepEqual(ids(buildPlanner(raw, { days: 1 }).days[0].items), ["p"], "规划列表的分组口径不变");
+  assert.deepEqual(ids(buildMonth(raw).selected.items), ["p"], "月历列表的分组口径不变");
+});
+
+test("日程：父子任务都有独立时刻时，两者都能显示", () => {
+  const parent = task({ id: "p", dueWithTime: new Date(2026, 10, 2, 13).getTime(), subTaskIds: ["c"] });
+  const child = task({ id: "c", parentId: "p", dueWithTime: new Date(2026, 10, 2, 14).getTime(), timeEstimate: 30 * MIN });
+  const s = buildSchedule({ allTasks: [parent, child], todayTasks: [], now: NOW });
+  assert.deepEqual(ids(s.blocks), ["p", "c"]);
+  assert.deepEqual(s.blocks.map((b) => b.startMin), [780, 840]);
+});
+
+test("日程：非零日界下的定时子任务只出现在所属逻辑日", () => {
+  const parent = task({ id: "p", dueDay: TODAY, subTaskIds: ["c"] });
+  const child = task({ id: "c", parentId: "p", dueWithTime: new Date(2026, 10, 3, 1).getTime() });
+  const raw = { allTasks: [parent, child], todayTasks: [parent], now: NOW };
+  const current = buildSchedule(raw, { day: TODAY, dayStartHour: 4 });
+  assert.deepEqual(ids(current.blocks), ["c"]);
+  assert.equal(current.blocks[0].startMin, 25 * 60);
+  assert.deepEqual(ids(buildSchedule(raw, { day: "2026-11-03", dayStartHour: 4 }).blocks), []);
+});
+
+test("日程：收起已完成后，只用可见任务计算重叠和显示范围", () => {
+  const at = (hour) => new Date(2026, 10, 2, hour).getTime();
+  const tasks = [
+    task({ id: "live", dueWithTime: at(14), timeEstimate: 30 * MIN }),
+    task({ id: "done-overlap", dueWithTime: at(14), isDone: true, timeEstimate: 60 * MIN }),
+    task({ id: "done-early", dueWithTime: at(6), isDone: true, timeEstimate: 60 * MIN }),
+    task({ id: "done-untimed", dueDay: TODAY, isDone: true }),
+  ];
+  const s = buildSchedule({ allTasks: tasks, todayTasks: [], now: NOW }, { showDone: false });
+  assert.deepEqual(ids(s.blocks), ["live"]);
+  assert.equal(s.blocks[0].lanes, 1, "隐藏的已完成任务不能占掉半条时间轴");
+  assert.equal(s.rangeStart, 8 * 60, "隐藏的清晨任务不能再撑大范围");
+  assert.deepEqual(ids(s.untimed), []);
+  const shown = buildSchedule({ allTasks: tasks, todayTasks: [], now: NOW }, { showDone: true });
+  assert.deepEqual(ids(shown.blocks), ["done-early", "done-overlap", "live"]);
+  assert.deepEqual(ids(shown.untimed), ["done-untimed"]);
+  assert.equal(shown.blocks.find((b) => b.id === "live").lanes, 2);
+});
+
 test("日程：并排分列", () => {
   const laid = assignLanes([
     { id: "a", start: 0, end: 60 },

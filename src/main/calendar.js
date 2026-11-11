@@ -5,7 +5,7 @@
 // 过去漏掉的日子 SP 不会补建，显示出来反而误导。
 // 日历事件（iCal/CalDAV）REST API 不提供，这里没有。
 
-import { addDays, dayStr, hhmm, isDay, isTimestamp, left, localDay, midnightOf, pad2, parseDay, resolveToday } from "./model.js";
+import { addDays, dayDiff, dayStr, hhmm, isDay, isTimestamp, left, localDay, midnightOf, pad2, parseDay, resolveToday } from "./model.js";
 import { getRepeatDueWithTime, getTaskRepeatCfgsForExactDay, isValidSplitTime } from "./repeat.js";
 
 const MIN = 60_000;
@@ -157,8 +157,8 @@ export function buildPlanner(raw, opts = {}) {
 }
 
 /** 重叠的块分到并排的几列：lane 是第几列，lanes 是这一簇一共几列。 */
-export function assignLanes(blocks) {
-  const sorted = [...blocks].sort((a, b) => a.start - b.start || b.end - a.end);
+export function assignLanes(blocks, startOf = (b) => b.start, endOf = (b) => b.end) {
+  const sorted = [...blocks].sort((a, b) => startOf(a) - startOf(b) || endOf(b) - endOf(a));
   let cluster = [];
   let laneEnds = [];
   let clusterEnd = -Infinity;
@@ -168,17 +168,17 @@ export function assignLanes(blocks) {
     laneEnds = [];
   };
   for (const b of sorted) {
-    if (b.start >= clusterEnd) flush();
-    let lane = laneEnds.findIndex((end) => end <= b.start);
+    if (startOf(b) >= clusterEnd) flush();
+    let lane = laneEnds.findIndex((end) => end <= startOf(b));
     if (lane < 0) {
       lane = laneEnds.length;
-      laneEnds.push(b.end);
+      laneEnds.push(endOf(b));
     } else {
-      laneEnds[lane] = b.end;
+      laneEnds[lane] = endOf(b);
     }
     b.lane = lane;
     cluster.push(b);
-    clusterEnd = Math.max(clusterEnd, b.end);
+    clusterEnd = Math.max(clusterEnd, endOf(b));
   }
   flush();
   return sorted;
@@ -194,10 +194,19 @@ export function buildSchedule(raw, opts = {}) {
   const day = opts.day && isDay(opts.day) ? opts.day : ctx.today;
   const entry = dayEntry(ctx, day);
   const midnight = midnightOf(day);
-  const toMin = (ms) => Math.round((ms - midnight) / MIN);
+  const toMin = (ms) => {
+    const d = new Date(ms);
+    // 点击新建按墙上钟点解释；绘图也必须按日历日与钟点，DST 跳时不能整体挪动一小时。
+    return Math.round(dayDiff(dayStr(d), day) * 1440 + d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60);
+  };
   const blocks = [];
-  for (const it of entry.items) {
-    if (!it.at) continue;
+  // 主进程传入显示设置；未指定时仍返回完整日程，保持纯函数调用方原有口径。
+  const showDone = opts.showDone ?? true;
+  // 时间轴按具体时刻画，不能用 dayEntry 已按父任务分组的 items：
+  // 同日的父任务不能吞掉子任务独立安排的钟点。先过滤完成项，再计算重叠和范围。
+  for (const t of ctx.byDay.get(day) || []) {
+    if (!isTimestamp(t.dueWithTime) || (!showDone && t.isDone)) continue;
+    const it = taskItem(ctx, t);
     let dur = it.isDone ? it.estimate || it.spent : it.left || it.estimate;
     const noEstimate = !dur;
     dur = Math.max(15 * MIN, dur || 30 * MIN);
@@ -207,7 +216,15 @@ export function buildSchedule(raw, opts = {}) {
     if (!p.at) continue;
     blocks.push({ ...p, start: p.at, end: p.at + Math.max(15 * MIN, p.estimate || 30 * MIN), noEstimate: !p.estimate });
   }
-  const laid = assignLanes(blocks).map((b) => ({ ...b, startMin: toMin(b.start), endMin: toMin(b.end), endLabel: hhmm(b.end) }));
+  const positioned = blocks.map((b) => {
+    const startMin = toMin(b.start);
+    const clockRollback = new Date(b.end).getTimezoneOffset() > new Date(b.start).getTimezoneOffset();
+    // 回拨段的墙钟终点可能早于起点；从真实起点按实际时长占位，标签仍保留真实结束钟点并说明。
+    const endMin = clockRollback ? startMin + (b.end - b.start) / MIN : toMin(b.end);
+    return { ...b, startMin, endMin, clockRollback, endLabel: hhmm(b.end) };
+  });
+  // 视觉占位相交就要并排，不能只用实际时间判断（回拨前后可能是同一个墙钟位置）。
+  const laid = assignLanes(positioned, (b) => b.startMin, (b) => b.endMin);
 
   const maxMin = 24 * 60 + ctx.dayStartHour * 60;
   let rangeStart = (opts.startHour ?? 8) * 60;
@@ -216,13 +233,15 @@ export function buildSchedule(raw, opts = {}) {
     rangeStart = Math.min(rangeStart, Math.floor(b.startMin / 60) * 60);
     rangeEnd = Math.max(rangeEnd, Math.ceil(b.endMin / 60) * 60);
   }
+  // 日界之前属于前一逻辑日；本日的深夜仍用 24:00 之后的坐标，不能开放本日凌晨槽。
+  rangeStart = Math.max(ctx.dayStartHour * 60, 0, rangeStart);
   return {
     ...entry,
     midnight,
-    rangeStart: Math.max(0, rangeStart),
+    rangeStart,
     rangeEnd: Math.min(maxMin, Math.max(rangeEnd, rangeStart + 60)),
     blocks: laid,
-    untimed: [...entry.items.filter((e) => !e.at), ...entry.projections.filter((p) => !p.at)],
+    untimed: [...entry.items.filter((e) => !e.at && (showDone || !e.isDone)), ...entry.projections.filter((p) => !p.at)],
   };
 }
 

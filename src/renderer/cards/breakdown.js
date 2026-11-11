@@ -19,7 +19,15 @@
       if (collapsed) return `7 天 ${W.duration(v.counted)}`;
       return `最近 7 天 · 按${v.by === "tag" ? "标签" : "项目"}`;
     },
-    sig: (state) => state.view && [state.view.by, state.view.buckets, state.view.other, state.view.total],
+    sig: (state) => state.view && [
+      state.view.by,
+      state.view.buckets,
+      state.view.other,
+      state.view.total,
+      state.view.counted,
+      state.view.groups,
+      state.view.from,
+    ],
     render(body, state) {
       const v = state.view;
       if (!v) return;

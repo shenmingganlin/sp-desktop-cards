@@ -18,7 +18,13 @@
       if (collapsed) return `连续 ${v.streak} 天`;
       return `最近 ${v.weeks} 周 · 连续 ${v.streak} 天`;
     },
-    sig: (state) => state.view && [state.view.days.map((d) => [d.level, d.done]), state.view.weeks],
+    sig: (state) => state.view && [
+      state.view.days.map((d) => [d.day, d.spent, d.done, d.level, d.inRange, d.isToday]),
+      state.view.weeks,
+      state.view.total,
+      state.view.active,
+      state.view.peak,
+    ],
     render(body, state) {
       const v = state.view;
       if (!v?.today) return;

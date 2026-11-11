@@ -13,7 +13,10 @@ export const isDay = (v) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(
 
 /** 本机时间对应的「工作日」：一天从 dayStartHour 点起算。 */
 export function localDay(ms, dayStartHour = 0) {
-  const d = new Date(ms - dayStartHour * 3600_000);
+  const d = new Date(ms);
+  // 日界是本地钟点，不是跨过 DST 后仍固定减去的实际时长。
+  const minute = d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60 + d.getMilliseconds() / 60_000;
+  if (minute < dayStartHour * 60) d.setDate(d.getDate() - 1);
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 }
 
@@ -52,16 +55,34 @@ export function midnightOf(day) {
  * 所以先看今日任务里只排了日期的任务（它们的 dueDay 就是 SP 的今天），
  * 没有这样的任务时才用本机时间和设置里的日界推算。
  */
+// 逻辑日开头往后多久还允许「差一天」的采信，见下面 resolveToday。
+const BOUNDARY_WINDOW_MS = 6 * 3600_000;
+
 export function resolveToday(todayTasks, now, dayStartHour) {
   const guess = localDay(now, dayStartHour);
+  const offByOne = [];
   for (const t of todayTasks) {
     if (isTimestamp(t.dueWithTime) || !isDay(t.dueDay)) continue;
-    // 只采信「跟本机推算差不多」的那天：TODAY 标签可以挂在别的日期的任务上
-    // （手动加标签、或者把日期改到了下周），直接拿第一条的 dueDay 当今天，
-    // 逾期判断、规划/日程/月历的起点、番茄钟跨天清零就全错位了。
-    if (Math.abs(dayDiff(t.dueDay, guess)) <= 1) return t.dueDay;
+    const diff = dayDiff(t.dueDay, guess);
+    // 对得上就直接用，不再看别的
+    if (diff === 0) return guess;
+    // TODAY 标签可以挂在别的日期的任务上（手动加标签、或者把日期改到了下周），
+    // 直接拿第一条的 dueDay 当今天，逾期判断、规划/日程/月历的起点、
+    // 番茄钟跨天清零就全错位了。所以只收差一天的，且只在日界附近收。
+    if (Math.abs(diff) === 1) offByOne.push(t.dueDay);
   }
-  return guess;
+  if (!offByOne.length) return guess;
+  // 离本机推算的这个逻辑日开头还不到 6 小时，才可能是 SP 的日界和我们差一截
+  // （设置里的日界只在启动时读一次，SP 里改过就会漂）。白天再挂着昨天的任务，
+  // 那是没清掉的旧条目，拿它当今天会把「排到明天」写成今天 —— 等于没排。
+  const guessStart = new Date(midnightOf(guess));
+  guessStart.setHours(dayStartHour ?? 0, 0, 0, 0);
+  if (now - guessStart.getTime() >= BOUNDARY_WINDOW_MS) return guess;
+  // 日界附近：SP 的日界可能比我们早或晚。出现得最多的那个更可能是 SP 的今天；
+  // 打平时取更早的一天（SP 默认日界在 0 点之后，最常见的就是这种情况）。
+  const tally = new Map();
+  for (const day of offByOne) tally.set(day, (tally.get(day) || 0) + 1);
+  return [...tally].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0][0];
 }
 
 export function hhmm(ms) {
@@ -156,6 +177,8 @@ export function buildView(raw, opts = {}) {
       id: t.id,
       title: t.title,
       parentTitle: parentTitle(t),
+      // 归档要用：子任务不能单独归档，得知道它是不是挂在别人下面
+      parentId: typeof t.parentId === "string" && t.parentId ? t.parentId : null,
       isDone: !!t.isDone,
       isCurrent: t.id === currentId,
       timeLabel: isTimestamp(t.dueWithTime) && !extra.overdue ? hhmm(t.dueWithTime) : null,
@@ -228,10 +251,16 @@ export function buildView(raw, opts = {}) {
     spentToday += t.timeSpentOnDay?.[today] || 0;
   }
   let remaining = 0;
+  const countedRemaining = new Set();
   for (const e of [...undone, ...overdueTop]) {
     const t = byId.get(e.id);
     const kids = childrenOf(t);
-    remaining += kids.length ? kids.filter((c) => !c.isDone).reduce((s, c) => s + left(c), 0) : left(t);
+    // 今日父项和单列的逾期孩子可以同时出现，同一叶子的剩余只累计一次。
+    for (const leaf of kids.length ? kids.filter((c) => !c.isDone) : [t]) {
+      if (countedRemaining.has(leaf.id)) continue;
+      countedRemaining.add(leaf.id);
+      remaining += left(leaf);
+    }
   }
 
   return {
@@ -265,12 +294,16 @@ export function buildView(raw, opts = {}) {
  */
 function wrapUpView({ undone, done }) {
   const leftOver = undone.map((e) => ({ id: e.id, title: e.title, parentTitle: e.parentTitle }));
-  // 归档哪些：就是卡片上「已完成」那一组，所见即所归。
-  const doneIds = done.map((e) => e.id);
+  // 归档哪些：卡片上「已完成」那一组里的顶层任务。
+  // 子任务不能单独归档（SP 回 400），而归档父任务又会把没做完的兄弟任务一起搬走，
+  // 所以只归顶层的；单独出现的已完成子任务留给用户回 SP 处理，菜单上如实说一声。
+  const doneIds = done.filter((e) => !e.parentId).map((e) => e.id);
+  const doneSubtaskCount = done.length - doneIds.length;
   return {
     leftOver,
     doneIds,
-    isEmpty: leftOver.length === 0 && doneIds.length === 0,
+    doneSubtaskCount,
+    isEmpty: leftOver.length === 0 && done.length === 0,
   };
 }
 

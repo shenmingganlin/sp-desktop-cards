@@ -119,7 +119,8 @@ export async function downloadFile(url, dir, name, { onProgress = () => {}, fetc
   fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, name);
   const part = `${file}.part`;
-  const res = await fetchImpl(url, { redirect: "follow", signal: signal || AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS) });
+  const downloadSignal = signal || AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS);
+  const res = await fetchImpl(url, { redirect: "follow", signal: downloadSignal });
   if (!res.ok || !res.body) throw new Error(`下载失败：HTTP ${res.status}`);
   const total = Number(res.headers.get("content-length")) || 0;
   let got = 0;
@@ -130,15 +131,22 @@ export async function downloadFile(url, dir, name, { onProgress = () => {}, fetc
       done(null, chunk);
     },
   });
+  let renamed = false;
   try {
-    await pipeline(Readable.fromWeb(res.body), counter, fs.createWriteStream(part));
+    // 响应体结束后 fetch 不再管文件流；取消必须覆盖剩下的落盘过程。
+    await pipeline(Readable.fromWeb(res.body), counter, fs.createWriteStream(part), { signal: downloadSignal });
+    downloadSignal.throwIfAborted();
     const size = fs.statSync(part).size;
     if (total && size !== total) throw new Error(`下载的文件不完整（${size}/${total} 字节）`);
     if (!size) throw new Error("下载的文件是空的");
     fs.rmSync(file, { force: true });
+    downloadSignal.throwIfAborted();
     fs.renameSync(part, file);
+    renamed = true;
+    downloadSignal.throwIfAborted();
   } catch (error) {
     fs.rmSync(part, { force: true });
+    if (renamed) fs.rmSync(file, { force: true });
     throw error;
   }
   return file;

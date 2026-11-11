@@ -210,12 +210,22 @@ export function isOnScreen(r, workAreas) {  return workAreas.some((a) => r.x < r
  */
 export function defaultSpot(size, placed, area) {
   const margin = 20;
-  let x = right(area) - size.width - margin;
+  // 超大卡片宁可让内容超出右边 / 下边，也不能把可拖动的顶栏放到屏幕外。
+  const fallback = {
+    x: Math.max(area.x, right(area) - size.width - margin),
+    y: Math.max(area.y, Math.min(area.y + margin, bottom(area) - size.height)),
+    ...size,
+  };
+  let x = fallback.x;
   for (let col = 0; col < 4; col++) {
-    const inCol = placed.filter((r) => overlap(r.x, right(r), x, x + size.width) > 0);
-    const y = inCol.length ? Math.max(...inCol.map(bottom)) + GAP : area.y + margin;
-    if (y + size.height <= bottom(area) - margin || col === 3) return { x, y: Math.min(y, bottom(area) - size.height), ...size };
-    x -= size.width + GAP;
+    // 另一块显示器可能与本列同 x，但不占本工作区；跨屏卡片的可见部分仍算占位。
+    const inCol = placed.filter((r) => overlap(r.y, bottom(r), area.y, bottom(area)) > 0 && overlap(r.x, right(r), x, x + size.width) > 0);
+    const y = inCol.length ? Math.max(...inCol.map(bottom)) + GAP : fallback.y;
+    if (y + size.height <= bottom(area) - margin) return { x, y, ...size };
+    const nextX = x - size.width - GAP;
+    if (nextX < area.x) break;
+    x = nextX;
   }
-  return { x, y: area.y + margin, ...size };
+  // 没有能完整容纳的列时允许重叠，保住顶栏，别继续向左试到整个窗口消失。
+  return fallback;
 }

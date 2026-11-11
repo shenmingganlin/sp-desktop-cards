@@ -1,0 +1,2 @@
+# Keep hash-verified upstream fixture bytes unchanged on Windows checkouts.
+tests/support/official-sp20/src/** -text

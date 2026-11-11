@@ -48,14 +48,15 @@
   async function choose(id) {
     const result = await window.widget.action("setTheme", { id });
     if (!result?.ok) return;
-    current = id;
-    apply(id);
+    // 主进程返回成功只代表手选值已保存；外部主题仍可能覆盖它。
+    // 等权威的 theme 事件更新当前生效主题，避免窗口短暂显示错误选中项。
     render();
   }
 
   window.widget.onEvent((event) => {
     if (event?.type !== "theme" || !event.theme) return;
     current = event.theme;
+    source = event.source || "";
     apply(current);
     render();
   });

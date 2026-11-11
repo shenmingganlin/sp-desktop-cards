@@ -29,8 +29,8 @@
       if (collapsed) return `完成 ${v.stats.doneCount}/${v.stats.totalCount}${v.overdue.length ? ` · 逾期 ${v.overdue.length}` : ""}`;
       return W.dayTitle(W.labelOf(v.today));
     },
-    // 收尾账变了也要重画：不把它放进签名，排完一项卡片不会更新
-    sig: (state) => state.view && [state.view.overdue, state.view.list, state.view.done, state.view.wrapUp],
+    // 日期和收尾账变了也要重画：空卡片的新建按钮不能保留昨日的日期。
+    sig: (state) => state.view && [state.view.today, state.view.overdue, state.view.list, state.view.done, state.view.wrapUp],
     render(body, state) {
       const v = state.view;
       const slot = W.addSlot("today");
@@ -60,7 +60,7 @@
     },
     foot(state) {
       const s = state.view.stats;
-      const spent = s.spentToday + (state.ticking?.task ? W.sinceSnapshot() : 0);
+      const spent = s.spentToday + (state.ticking?.task ? W.sinceListsSnapshot() : 0);
       const parts = [`今日已用 ${W.duration(spent)}`, `完成 ${s.doneCount}/${s.totalCount}`];
       if (s.remaining) parts.push(`预估剩余 ${W.duration(s.remaining)}`);
       return parts.join(" · ");

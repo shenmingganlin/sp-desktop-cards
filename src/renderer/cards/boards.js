@@ -71,13 +71,13 @@
       const v = state.view;
       if (!v) return "";
       if (collapsed) return `${v.counts.total} 项`;
-      return v.title;
+      return `${v.title} · SP 默认规则`;
     },
     // missingTags 这些只影响提示条，但提示条也是卡片的一部分：
     // 漏了它们，SP 里补建标签后「还没有 XX 标签」会一直挂着，说反了事实。
     sig: (state) => state.view && [
       state.view.preset, state.view.columns, state.view.counts,
-      state.view.missingTags, state.view.blankColumns,
+      state.view.missingTags, state.view.blankColumns, state.view.sameNameTagLabels, state.view.matrixTagLabels,
     ],
     render(body, state) {
       const v = state.view;
@@ -85,29 +85,31 @@
       // 提示条只在上面挂一条，看板照画：SP 自己也是这么处理的。
       // 整张卡换成提示，看起来就像「SP 里有数据但卡片没有」。
       const untaggedBucket = v.columns.find((c) => c.isUntaggedBucket);
+      const matrixLabels = v.matrixTagLabels.map((name) => `「${name}」`).join(" / ");
       if (v.missingTags.length) {
         const note = W.el("div", "board-note");
         // 第四格这时叫「未分类」，里面的任务不是「判过不重要」，是根本没标过。
         // 不说这一句，用户会以为卡片替他判了轻重缓急。
         const untagged = untaggedBucket ? "「未分类」里的任务只是没打标签，不是判过轻重缓急了。" : "";
-        note.append(W.el("span", "", `SP 里还没有 ${v.missingTagLabels.map((n) => `「${n}」`).join("、")} 标签，${
-          v.blankColumns.length ? `「${v.columns.filter((c) => v.blankColumns.includes(c.id)).map((c) => c.title).join("」「")}」列会是空的。` : ""
-        }${untagged}在 SP 里打开一次看板就会建好。`));
+        const sameNames = v.sameNameTagLabels?.length
+          ? `已有的同名普通标签 ${v.sameNameTagLabels.map((name) => `「${name}」`).join("、")} 与系统标签 ID 不同，不能替代；卡片不会合并或迁移它们。` : "";
+        note.append(W.el("span", "", `SP 默认看板所需的 ${v.missingTagLabels.map((n) => `「${n}」`).join("、")} 系统标签尚未创建。卡片与 SP 一样按标签 ID 分列；需要新增这些标签的换列会被阻止。${sameNames}${untagged}请在 SP 里打开对应看板，再点击缺失标签提示中的创建按钮；只打开页面不会创建标签。`));
         body.append(note);
       } else if (untaggedBucket) {
         // 标签建好了，但一条任务都没打过标 —— 第四格照样是全部任务。
         // 这时只有「未分类」三个字不够，得告诉用户怎么让矩阵活起来。
         const note = W.el("div", "board-note");
-        note.append(W.el("span", "", "还没有任务打过 urgent / important 标签，所以都堆在「未分类」里。给任务打上这两个标签，矩阵才会分开。"));
+        note.append(W.el("span", "", `还没有任务打过 ${matrixLabels} 标签，所以都堆在「未分类」里。给任务打上这两个标签，矩阵才会分开。`));
         body.append(note);
       }
       if (!v.counts.total) {
         const empty = W.el("div", "empty");
-        empty.append(W.el("p", "", v.preset === "eisenhower" ? "还没有任务挂上 urgent / important 标签。" : "看板是空的。"));
+        empty.append(W.el("p", "", v.preset === "eisenhower" ? `还没有任务挂上 ${matrixLabels} 标签。` : "看板是空的。"));
         body.append(empty);
         return;
       }
       const grid = W.el("div", `board board-${v.cols}`);
+      grid.title = "按 SP 默认规则分类；SP 中自定义的列、筛选条件和手动排序不会同步到此卡片。";
       for (const col of v.columns) {
         const box = W.el("div", "board-col");
         const head = W.el("div", "board-col-head");

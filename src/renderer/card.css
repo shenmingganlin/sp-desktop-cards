@@ -245,6 +245,7 @@ body.attention #head { background: var(--bg-attention); }
   user-select: text;
 }
 .add input::placeholder { color: var(--faint); }
+.add .link { flex: none; white-space: nowrap; }
 
 /* ── 底栏 ── */
 #foot {

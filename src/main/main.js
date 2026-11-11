@@ -41,7 +41,9 @@ if (process.env.SPW_USER_DATA) app.setPath("userData", process.env.SPW_USER_DATA
 
 // 0.2.2 及以前叫「SP 今日小窗」，设置在同名目录里。第一次以新名字启动时搬过来，见 usermigrate.js。
 // SPW_USER_DATA 是自检用的独立目录，旁边没有老目录，不用搬，也别去碰真正的设置。
-if (!process.env.SPW_USER_DATA) adoptUserData(app.getPath("userData"));
+// 迁移失败时暂不写新目录：否则默认设置会把旧目录遮住，下一次启动就不会再重试。
+const migrationResult = process.env.SPW_USER_DATA ? "skipped" : adoptUserData(app.getPath("userData"));
+const migrationReadOnly = migrationResult === "failed";
 if (!app.requestSingleInstanceLock()) app.exit(0);
 // Windows 上不设这个，系统通知显示不出来
 app.setAppUserModelId("io.github.shenmingganlin.sp-desktop-cards");
@@ -84,9 +86,13 @@ function applyTheme() {
   nativeTheme.themeSource = theme.isLightSkin(t.theme) ? "light" : "dark";
   cards?.setBackground(color);
   for (const win of [settingsWin, appearanceWin, hotkeyWin, tourWin, updateWin]) {
-    if (!win || win.isDestroyed()) continue;
-    win.setBackgroundColor(color);
-    win.webContents.send("event", { type: "theme", theme: t.theme });
+    if (!windowAlive(win)) continue;
+    try {
+      win.setBackgroundColor(color);
+      win.webContents.send("event", { type: "theme", theme: t.theme, source: t.source });
+    } catch {
+      // 辅助窗口可能刚被原生销毁，下一次状态推送会补上。
+    }
   }
 }
 
@@ -226,7 +232,17 @@ async function setManualToken(value) {
   const token = typeof value === "string" ? value.trim() : "";
   if (token && !isValidToken(token)) return { ok: false, message: "令牌应为 32 位字母和数字。" };
   if (token && !canEncrypt) return { ok: false, message: "系统不支持加密保存，无法记住手填的令牌。" };
-  const enc = token ? (await safeStorage.encryptStringAsync(token)).toString("base64") : "";
+  const revision = ++tokenSaveRevision;
+  let enc = "";
+  if (token) {
+    try {
+      enc = (await safeStorage.encryptStringAsync(token)).toString("base64");
+    } catch {
+      return { ok: false, message: "系统加密保存失败，请稍后重试或检查系统账户。" };
+    }
+  }
+  // 清空不经过加密等待，较早的保存可能更晚完成；只有最新意图能提交。
+  if (revision !== tokenSaveRevision) return { ok: false, message: "令牌设置已有更新，本次保存未生效。" };
   settings.update({ manualToken: enc });
   manualToken = token;
   autoToken = "";
@@ -234,6 +250,7 @@ async function setManualToken(value) {
   pushState();
   return OK;
 }
+let tokenSaveRevision = 0;
 
 const client = createClient({ baseUrl: process.env.SPW_BASE_URL || DEFAULT_BASE_URL, getToken });
 
@@ -258,7 +275,7 @@ function cardView(type, todayView) {
   if (type === "planner") return cached(type, key, () => buildPlanner(raw, { dayStartHour: s.dayStartHour, days: s.plannerDays }));
   if (type === "schedule") {
     return cached(type, key, () => buildSchedule(raw, {
-      dayStartHour: s.dayStartHour, day: ui.scheduleDay, startHour: s.scheduleStartHour, endHour: s.scheduleEndHour,
+      dayStartHour: s.dayStartHour, day: ui.scheduleDay, startHour: s.scheduleStartHour, endHour: s.scheduleEndHour, showDone: s.showDone,
     }));
   }
   if (type === "stats") return cached(type, key, () => buildStats(raw, { today: currentDay(), now: raw.now, dayStartHour: s.dayStartHour }));
@@ -320,6 +337,7 @@ function pushState() {
     pomodoro: pomoView(),
     attention: cards.isAttending("focus"),
     snapshotAt: raw?.snapshotAt ?? null,
+    listsAt: raw?.listsAt ?? null,
     ticking: raw?.ticking ?? null,
     // 清单卡片的切换器要用的候选项目/标签
     sources: raw ? listSources(raw) : { projects: [], tags: [] },
@@ -328,19 +346,24 @@ function pushState() {
     const view = raw ? cardView(type, todayView) : null;
     cards.send(type, "state", { ...common, card: type, view, collapsed: s.cards[type].collapsed, nav: { ...ui } });
   }
-  if (settingsWin && !settingsWin.isDestroyed()) {
-    settingsWin.webContents.send("state", { ...common, card: null, projects: (raw?.projects || []).map((p) => ({ id: p.id, title: p.title })) });
+  if (windowAlive(settingsWin)) {
+    try {
+      settingsWin.webContents.send("state", { ...common, card: null, projects: (raw?.projects || []).map((p) => ({ id: p.id, title: p.title })) });
+    } catch {
+      // 设置窗口正在销毁，这一帧丢失无害；重新打开时会收到完整状态。
+    }
   }
 }
 
 // ── 番茄钟 ──
 // 状态机在 pomodoro.js；这里负责定时、执行副作用（让 SP 计时、发通知）、保存今天的番茄数。
+// 计时意图立即进入 client 的共享队列，和卡片手动操作保持先后顺序；提醒不阻塞队列。
 function applyPomo({ state, effects }) {
   pomoState = state;
   savePomo();
   clearTimeout(pomoTimer);
   pomoTimer = state.status === "running" ? setTimeout(pomoTick, Math.max(0, state.endsAt - Date.now()) + 50) : null;
-  for (const effect of effects) runEffect(effect);
+  for (const effect of effects) void runEffect(effect);
   syncTrayTip();
   pushState();
 }
@@ -363,7 +386,7 @@ async function runEffect(effect) {
     if (effect.type === "notify") return notify(effect);
     if (effect.type === "track") await client.start(effect.taskId);
     // 只在 SP 还在计这个任务时才停：用户可能已经换了别的任务
-    if (effect.type === "untrack" && (await client.current())?.id === effect.taskId) await client.stop();
+    if (effect.type === "untrack") await client.stopIfCurrent(effect.taskId);
     poller.kick();
   } catch (error) {
     lastError = { code: error.code || "ERROR", message: HINTS[error.code] || error.message };
@@ -542,24 +565,56 @@ function boardMoveMenu(taskId, columnId) {
   ]);
 }
 
-/** 换列的菜单动作。成功/失败都要说清楚，失败不能装作挪过去了。 */
+/** 换列的菜单动作。确认成功、明确失败和结果待核实分别提示。 */
+const boardWrites = new Map();
 async function moveTaskToColumnAction(taskId, columnId) {
-  let patch;
-  try {
-    patch = moveTaskToColumn(raw, { taskId, columnId, preset: settings.get().boardPreset });
-  } catch (error) {
-    toast?.show({ text: error.message, ms: 4000 });
-    return;
-  }
-  const result = await runTaskAction(() => client.patchTask(taskId, patch));
-  if (result.ok) {
-    // 用卡片上的名字，不是预设原名（第四格可能是「未分类」）
-    const def = BOARD_PRESETS[settings.get().boardPreset] || BOARD_PRESETS.kanban;
-    const title = boardColumnTitles().get(columnId) || def.panels.find((p) => p.id === columnId)?.title || columnId;
-    toast?.show({ text: `已移到「${title}」`, ms: 2500 });
-  } else {
-    toast?.show({ text: `没挪成：${result.message}`, ms: 4000 });
-  }
+  // 接到意图时捕获预设并入队；同一任务的后一次读取不能越过前一次写入。
+  const preset = settings.get().boardPreset;
+  const def = BOARD_PRESETS[preset] || BOARD_PRESETS.kanban;
+  const panel = def.panels.find((p) => p.id === columnId);
+  const title = boardColumnTitles().get(columnId) || panel?.title || columnId;
+  const write = (boardWrites.get(taskId) || Promise.resolve()).catch(() => {}).then(async () => {
+    if (!panel) {
+      toast?.show({ text: `未知的列：${columnId}`, ms: 4000 });
+      return;
+    }
+    const result = await runTaskAction(async () => {
+      const [task, tags, projects] = await Promise.all([
+        client.request("GET", `/tasks/${encodeURIComponent(taskId)}`),
+        client.request("GET", "/tags"),
+        panel.noBacklog ? client.request("GET", "/projects") : Promise.resolve([]),
+      ]);
+      const record = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+      const id = (v) => typeof v === "string" && v.trim().length > 0;
+      const ids = (v) => Array.isArray(v) && v.every(id);
+      const optionalId = (v) => v == null || v === "" || id(v);
+      // 只用新读到的实体计算；坏回执不能被当成空标签/非积压任务再整数组覆盖。
+      if (!record(task) || task.id !== taskId || typeof task.title !== "string" ||
+          !ids(task.tagIds) || typeof task.isDone !== "boolean" ||
+          !optionalId(task.parentId) || !optionalId(task.projectId) ||
+          !Array.isArray(tags) || tags.some((t) => !record(t) || !id(t.id) || typeof t.title !== "string") ||
+          !Array.isArray(projects) || projects.some((p) => !record(p) || !id(p.id) || typeof p.title !== "string" ||
+            typeof p.isEnableBacklog !== "boolean" || !ids(p.backlogTaskIds))) {
+        throw Object.assign(new Error(HINTS.SP_BAD_RESPONSE), { code: "SP_BAD_RESPONSE" });
+      }
+      const patch = moveTaskToColumn({ allTasks: [task], tags, projects }, { taskId, columnId, preset });
+      if (!Object.keys(patch).length) return { changed: false };
+      // 本机队列只排本应用的移列；外部 SP 操作仍可能发生在 GET 和 PATCH 之间。
+      await client.patchTask(taskId, patch);
+      return { changed: true };
+    });
+    if (result.ok) {
+      toast?.show({ text: `${result.data.changed ? "已移到" : "已在"}「${title}」`, ms: 2500 });
+    } else if (result.outcomeUnknown) {
+      toast?.show({ text: "移动结果待核实，可能已移到目标列。请先在 SP 检查，再决定是否重试。", ms: 4000 });
+    } else {
+      toast?.show({ text: `没挪成：${result.message}`, ms: 4000 });
+    }
+  });
+  boardWrites.set(taskId, write);
+  const release = () => { if (boardWrites.get(taskId) === write) boardWrites.delete(taskId); };
+  write.then(release, release);
+  return write;
 }
 
 function wrapUpMenu() {
@@ -567,6 +622,9 @@ function wrapUpMenu() {
   const w = view?.wrapUp;
   const left = w?.leftOver ?? [];
   const doneIds = w?.doneIds ?? [];
+  // 归档父任务会连没做完的兄弟子任务一起搬走，所以单独出现的已完成子任务不归，
+  // 菜单上说明白；「今天没有已完成的」这种话不能在有子任务时照说。
+  const subtasks = w?.doneSubtaskCount ?? 0;
   const item = (label, enabled, run) => ({ label, enabled, click: run });
   return Menu.buildFromTemplate([
     { label: `结束这一天`, enabled: false },
@@ -574,48 +632,57 @@ function wrapUpMenu() {
     item(left.length ? `没做完的 ${left.length} 项排到明天` : "今天没有没做完的", left.length > 0, () => {
       void moveLeftOverToTomorrow(left);
     }),
-    item(doneIds.length ? `已完成的 ${doneIds.length} 项归档` : "今天没有已完成的", doneIds.length > 0, () => {
+    item(doneIds.length ? `已完成的 ${doneIds.length} 项归档` : subtasks ? "已完成的是子任务，不能单独归档" : "今天没有已完成的", doneIds.length > 0, () => {
       void archiveDone(doneIds);
     }),
+    ...(doneIds.length && subtasks
+      ? [{ type: "separator" }, { label: `另有 ${subtasks} 项已完成的子任务，归档父任务时会一起搬走`, enabled: false }]
+      : []),
   ]);
 }
 
-/** 没做完的全排到明天。逐条走，失败的说清楚是哪条。 */
+/** 没做完的全排到明天。逐条走，未知结果不计作确定失败。 */
 async function moveLeftOverToTomorrow(list) {
   const day = addDays(currentDay(), 1);
   let ok = 0;
   const failed = [];
+  const uncertain = [];
   for (const t of list) {
     try {
       await client.patchTask(t.id, { dueDay: day, dueWithTime: null });
       ok += 1;
     } catch (error) {
-      failed.push(t.title);
+      if (error.outcomeUnknown === true) uncertain.push(t.title);
+      else failed.push(t.title);
     }
   }
   poller.kick();
   const parts = [];
   if (ok) parts.push(`已把 ${ok} 项排到明天`);
   if (failed.length) parts.push(`${failed.length} 项没排上：${failed.slice(0, 2).join("、")}${failed.length > 2 ? "…" : ""}`);
+  if (uncertain.length) parts.push(`${uncertain.length} 项排期结果待核实：${uncertain.slice(0, 2).join("、")}${uncertain.length > 2 ? "…" : ""}。请先在 SP 检查这些任务，再决定是否重试`);
   toast?.show({ text: parts.join("；"), ms: 4000 });
 }
 
-/** 已完成的归档。SP 连子任务一起搬走；失败照样逐条报。 */
+/** 已完成的归档。SP 连子任务一起搬走；未知结果不计作确定失败。 */
 async function archiveDone(ids) {
   let ok = 0;
   const failed = [];
+  const uncertain = [];
   for (const id of ids) {
     try {
       await client.archiveTask(id);
       ok += 1;
     } catch (error) {
-      failed.push(id);
+      if (error.outcomeUnknown === true) uncertain.push((raw?.allTasks || []).find((t) => t.id === id)?.title || id);
+      else failed.push(id);
     }
   }
   poller.kick();
   const parts = [];
   if (ok) parts.push(`已归档 ${ok} 项`);
   if (failed.length) parts.push(`${failed.length} 项没归档`);
+  if (uncertain.length) parts.push(`${uncertain.length} 项归档结果待核实：${uncertain.slice(0, 2).join("、")}${uncertain.length > 2 ? "…" : ""}。请先在 SP 检查这些任务，再决定是否重试`);
   toast?.show({ text: parts.join("；"), ms: 4000 });
 }
 
@@ -663,11 +730,16 @@ function openSp() {
 }
 
 function openSettings() {
-  if (settingsWin && !settingsWin.isDestroyed()) {
-    settingsWin.show();
-    settingsWin.focus();
-    return;
+  if (windowAlive(settingsWin)) {
+    try {
+      settingsWin.show();
+      settingsWin.focus();
+      return;
+    } catch {
+      settingsWin = null;
+    }
   }
+  settingsWin = null;
   settingsWin = new BrowserWindow({
     width: 440,
     height: 660,
@@ -690,11 +762,16 @@ function openSettings() {
 
 // ── 外观：皮肤一多，就不塞进设置页了，单独一个窗口 ──
 function openAppearance() {
-  if (appearanceWin && !appearanceWin.isDestroyed()) {
-    appearanceWin.show();
-    appearanceWin.focus();
-    return;
+  if (windowAlive(appearanceWin)) {
+    try {
+      appearanceWin.show();
+      appearanceWin.focus();
+      return;
+    } catch {
+      appearanceWin = null;
+    }
   }
+  appearanceWin = null;
   appearanceWin = new BrowserWindow({
     width: 640,
     height: 560,
@@ -717,11 +794,16 @@ function openAppearance() {
 
 // ── 快捷键录制：做成卡片样子的一个小窗，点键盘选组合 ──
 function openHotkey() {
-  if (hotkeyWin && !hotkeyWin.isDestroyed()) {
-    hotkeyWin.show();
-    hotkeyWin.focus();
-    return;
+  if (windowAlive(hotkeyWin)) {
+    try {
+      hotkeyWin.show();
+      hotkeyWin.focus();
+      return;
+    } catch {
+      hotkeyWin = null;
+    }
   }
+  hotkeyWin = null;
   hotkeyWin = new BrowserWindow({
     width: 460,
     height: 420,
@@ -750,11 +832,16 @@ function openHotkey() {
 let tourWin = null;
 
 function openTour() {
-  if (tourWin && !tourWin.isDestroyed()) {
-    tourWin.show();
-    tourWin.focus();
-    return;
+  if (windowAlive(tourWin)) {
+    try {
+      tourWin.show();
+      tourWin.focus();
+      return;
+    } catch {
+      tourWin = null;
+    }
   }
+  tourWin = null;
   tourWin = new BrowserWindow({
     width: 460,
     height: 440,
@@ -784,6 +871,7 @@ function openTour() {
 let updateWin = null;
 let updateBusy = false; // 正在查或正在下，别重复来
 let downloadAbort = null;
+let updateEvent = null; // 页面晚就绪时补发最近一次下载状态
 
 const updatesDir = () => path.join(app.getPath("userData"), "updates");
 
@@ -815,18 +903,37 @@ function askBox({ message, detail, buttons, cancelId = 1 }) {
 }
 
 function sendUpdate(payload) {
-  if (updateWin && !updateWin.isDestroyed()) updateWin.webContents.send("event", payload);
+  updateEvent = payload;
+  if (!windowAlive(updateWin)) return;
+  try {
+    updateWin.webContents.send("event", payload);
+  } catch {
+    // 页面或原生窗口正在切换，保留 updateEvent 让 ready 时补发。
+  }
 }
 
 function closeUpdateWindow() {
-  if (updateWin && !updateWin.isDestroyed()) updateWin.close();
+  if (!windowAlive(updateWin)) {
+    updateWin = null;
+    return;
+  }
+  try {
+    updateWin.close();
+  } catch {
+    updateWin = null;
+  }
 }
 
 function openUpdateWindow(version) {
-  if (updateWin && !updateWin.isDestroyed()) {
-    updateWin.focus();
-    return;
+  if (windowAlive(updateWin)) {
+    try {
+      updateWin.focus();
+      return;
+    } catch {
+      updateWin = null;
+    }
   }
+  updateWin = null;
   updateWin = new BrowserWindow({
     width: 400,
     height: 190,
@@ -844,9 +951,21 @@ function openUpdateWindow(version) {
   updateWin.setMenu(null);
   updateWin.webContents.on("will-navigate", (e) => e.preventDefault());
   updateWin.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-  updateWin.once("ready-to-show", () => updateWin?.show());
-  updateWin.on("closed", () => (updateWin = null));
-  updateWin.loadFile(path.join(renderer, "update.html"), { query: { theme: currentTheme().theme } });
+  const w = updateWin;
+  w.once("ready-to-show", () => {
+    if (!windowAlive(w)) return;
+    try {
+      w.show();
+      if (updateWin === w && updateEvent) sendUpdate(updateEvent);
+    } catch {
+      // 原生窗口在判活和 show 之间消失，等下一次更新操作重开。
+      if (updateWin === w) updateWin = null;
+    }
+  });
+  w.on("closed", () => {
+    if (updateWin === w) updateWin = null;
+  });
+  w.loadFile(path.join(renderer, "update.html"), { query: { theme: currentTheme().theme } });
 }
 
 /** 装新版：先退出，再让命令行等安装包跑完，然后把新的程序打开。 */
@@ -866,12 +985,18 @@ function installUpdate(file) {
 async function downloadUpdate(latest) {
   const name = updateCheck.artifactName(latest.version, "setup");
   openUpdateWindow(latest.version);
-  downloadAbort = new AbortController();
+  sendUpdate({ type: "start", version: latest.version });
+  const abort = downloadAbort = new AbortController();
   try {
     const file = await updateCheck.downloadFile(latest.setup.url, updatesDir(), name, {
-      signal: downloadAbort.signal,
+      signal: abort.signal,
       onProgress: (percent, got, total) => sendUpdate({ type: "progress", percent, got, total }),
     });
+    // 下载已落盘但 await 的续体尚未执行时也可能收到取消，不能再发完成或安装确认。
+    if (abort.signal.aborted) {
+      fs.rmSync(file, { force: true });
+      abort.signal.throwIfAborted();
+    }
     sendUpdate({ type: "done" });
     const answer = await askBox({
       message: `下载完成：${latest.version}`,
@@ -992,7 +1117,8 @@ async function runTaskAction(fn) {
     const data = await fn();
     return { ok: true, data };
   } catch (error) {
-    return { ok: false, code: error.code || "ERROR", message: HINTS[error.code] || error.message };
+    return { ok: false, code: error.code || "ERROR", message: HINTS[error.code] || error.message,
+      ...(error.outcomeUnknown === true ? { outcomeUnknown: true } : {}) };
   } finally {
     poller.kick();
   }
@@ -1105,9 +1231,10 @@ const tourActions = {
 const updateActions = {
   cancel: () => (downloadAbort?.abort(), OK),
   close: () => (closeUpdateWindow(), OK),
+  updateReady: () => (updateEvent && sendUpdate(updateEvent), OK),
 };
 
-const from = (win, sender) => win && !win.isDestroyed() && sender === win.webContents;
+const from = (win, sender) => windowAlive(win) && sender === win.webContents;
 
 ipcMain.handle("action", async (event, name, payload) => {
   const type = cards?.typeOf(event.sender);
@@ -1183,10 +1310,12 @@ app.on("before-quit", () => {
   globalShortcut.unregisterAll();
   toast?.close();
 });
+// before-quit 之后窗口才关闭；教程 closed 等回调可能最后更新设置，退出前再同步落盘。
+app.on("will-quit", () => settings?.flush());
 app.on("window-all-closed", () => {});
 
 app.whenReady().then(async () => {
-  settings = createSettingsStore(app.getPath("userData"));
+  settings = createSettingsStore(app.getPath("userData"), { readOnly: migrationReadOnly });
   toast = createToast({ preload, page: path.join(renderer, "toast.html"), themeId: () => currentTheme().theme });
   // 外部主题文件先读一次，卡片窗口创建时就要用对皮肤
   externalTheme = theme.readExternal(themeFile());

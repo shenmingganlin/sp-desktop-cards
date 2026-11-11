@@ -1,0 +1,179 @@
+{
+  "version": "0.9.3",
+  "date": "2026-11-11",
+  "sourceTag": "v0.9.3",
+  "toolchain": {
+    "node": "v24.22.2",
+    "electron": "45.2.1",
+    "electronBuilder": "26.18.0",
+    "arch": "win32-x64"
+  },
+  "buildCommand": "npm run dist -- --config.directories.output=dist/release-v0.9.3 --config.electronDist=node_modules/electron/dist --config.electronVersion=45.2.1",
+  "tests": {
+    "command": "node --test --test-timeout=60000 --test-concurrency=4 --test-reporter=tap \"test/*.test.js\" \"tests/*.test.js\"",
+    "tests": 578,
+    "suites": 27,
+    "pass": 578,
+    "fail": 0,
+    "cancelled": 0,
+    "skipped": 0,
+    "syntaxFilesChecked": 104,
+    "syntaxFailures": 0
+  },
+  "smoke": {
+    "packagedExecutable": true,
+    "syntheticData": true,
+    "isolatedUserData": true,
+    "realSpWrites": false,
+    "autoUpdate": false,
+    "openAtLogin": false,
+    "scenarios": [
+      {
+        "scenario": "all",
+        "exitCode": 0,
+        "screenshots": [
+          "boards.png",
+          "breakdown.png",
+          "focus.png",
+          "heatmap.png",
+          "list.png",
+          "month.png",
+          "planner.png",
+          "schedule.png",
+          "settings.png",
+          "today.png",
+          "triage.png"
+        ]
+      },
+      {
+        "scenario": "migrate",
+        "exitCode": 0,
+        "screenshots": [
+          "focus.png",
+          "today.png"
+        ]
+      },
+      {
+        "scenario": "boards-matrix",
+        "exitCode": 0,
+        "screenshots": [
+          "boards.png",
+          "focus.png",
+          "today.png"
+        ]
+      },
+      {
+        "scenario": "boards-untagged",
+        "exitCode": 0,
+        "screenshots": [
+          "boards.png",
+          "focus.png",
+          "today.png"
+        ]
+      },
+      {
+        "scenario": "sp-focus",
+        "exitCode": 0,
+        "screenshots": [
+          "focus.png",
+          "today.png"
+        ]
+      },
+      {
+        "scenario": "empty",
+        "exitCode": 0,
+        "screenshots": [
+          "boards.png",
+          "breakdown.png",
+          "focus.png",
+          "heatmap.png",
+          "list.png",
+          "month.png",
+          "planner.png",
+          "schedule.png",
+          "today.png",
+          "triage.png"
+        ]
+      },
+      {
+        "scenario": "adopt",
+        "exitCode": 0,
+        "screenshots": [
+          "focus.png",
+          "today.png"
+        ]
+      }
+    ]
+  },
+  "artifacts": {
+    "sp-desktop-cards-0.9.3-setup.exe": {
+      "size": 121873353,
+      "sha256": "313d41d3ded6c0a731fedf0984ee75630550b3de655c12d3588a5093b83103bb"
+    },
+    "sp-desktop-cards-0.9.3-win-x64.zip": {
+      "size": 153900937,
+      "sha256": "23f83dd2c011e0dfdd3b784369a0a84c10eb104810fd50de46b03349f9d3f75f"
+    }
+  },
+  "packageChecks": {
+    "zipCrcPassed": true,
+    "zipFiles": 79,
+    "unpackedFiles": 80,
+    "nsisPayloadFiles": 80,
+    "zipVsUnpacked": {
+      "leftOnly": [],
+      "rightOnly": [
+        "resources/elevate.exe"
+      ],
+      "different": []
+    },
+    "nsisPayloadVsUnpacked": {
+      "leftOnly": [],
+      "rightOnly": [],
+      "different": []
+    },
+    "asarSha256": "d593e2aa5d2dcf0241d243a52ec9e695331fe189d7dd616a2d20d474baee62ad",
+    "packageVersion": "0.9.3",
+    "sourceFiles": {
+      "repository": 63,
+      "archive": 63,
+      "missing": [],
+      "extra": [],
+      "byteMismatches": []
+    },
+    "nativeFiles": [
+      {
+        "path": "node_modules/@koromix/koffi-win32-x64/win32_x64/koffi.node",
+        "unpacked": true,
+        "sidecarExists": true,
+        "extractMatchesSidecar": true,
+        "matchesRepositoryNodeModules": true,
+        "sha256": "44f208587238fab352e63714c40bbb691c6fc1cf906af9f244eebf9690f56dd3"
+      }
+    ],
+    "latestYml": {
+      "version": "0.9.3",
+      "file": "sp-desktop-cards-0.9.3-setup.exe",
+      "size": 121873353,
+      "declaredSize": 121873353,
+      "sha512": "yPCWWVrWkJeTrPtcPK1vK+tm8z92jIQAg73/KVyKSEbQFIxW+xpWTQ6UO70tjpNz6045lAzsLc2EUBXgVYPhwQ==",
+      "fileSha512Matches": true,
+      "topLevelSha512Matches": true,
+      "pathMatches": true,
+      "sizeMatches": true,
+      "releaseDate": "2026-11-11T12:47:32.543Z"
+    },
+    "executableVersion": {
+      "FileVersion": "0.9.3",
+      "ProductVersion": "0.9.3.0",
+      "ProductName": "SP 桌面卡片",
+      "OriginalFilename": ""
+    }
+  },
+  "limits": [
+    "No formal installation or upgrade executed.",
+    "No physical display hot-plug, sleep/wake, DPI change, Explorer restart, or long-duration acceptance in this release run.",
+    "Board contract covers SP 20.0.0 defaults; custom boards, filtering and manual ordering are not exposed by the public API.",
+    "FIFO is local to this application; server operations are not atomic across clients."
+  ]
+}

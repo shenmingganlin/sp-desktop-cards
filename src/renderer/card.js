@@ -50,11 +50,13 @@ const W = (() => {
   const dayTitle = (label) => [label.rel, label.date, label.weekday].filter(Boolean).join(" ");
 
   let state = { view: null, error: null, settings: null };
-  const pending = new Map(); // id → 乐观显示的 isDone，等 SP 确认
+  const pending = new Map(); // id → 当前操作 { isDone }；对象身份区分先后响应
   let toastTimer = null;
 
   // 两次轮询之间按本机时钟往前推。主进程和页面在同一台机器上，直接用 snapshotAt。
   const sinceSnapshot = () => (state.snapshotAt ? Math.max(0, Date.now() - state.snapshotAt) : 0);
+  // 累计用时来自慢轮询的列表，不能用每次快轮询都重置的 snapshotAt 来补秒数。
+  const sinceListsSnapshot = () => (state.listsAt ? Math.max(0, Date.now() - state.listsAt) : 0);
 
   function toast(message, undo) {
     const box = $("toast");
@@ -77,24 +79,38 @@ const W = (() => {
     try {
       result = await window.widget.action(name, payload);
     } catch (error) {
-      result = { ok: false, message: error?.message || "主进程没有响应" };
+      result = { ok: false, message: error?.message || "主进程没有响应",
+        ...(name === "createTask" ? { outcomeUnknown: true } : {}) };
     }
-    if (result && result.ok === false && name !== "rendered") toast(`没成功：${result.message || "未知错误"}`);
+    // IPC 回执本身也可能丢失或损坏，不能把新建当作确定失败后直接再次提交。
+    if (name === "createTask" && (!result || typeof result !== "object" ||
+        ![true, false].includes(result.ok) || (result.ok &&
+          (typeof result.data?.id !== "string" || !result.data.id.trim() || typeof result.data?.title !== "string")))) {
+      result = { ok: false, outcomeUnknown: true, message: "未收到有效的新建回执" };
+    }
+    if (result?.ok === false && name !== "rendered") {
+      if (result.outcomeUnknown) toast(name === "createTask"
+        ? "添加结果未确认，可能已经创建。请先检查任务列表，再决定是否重试。"
+        : "操作结果待核实，请先在 SP 检查当前状态。");
+      else toast(`没成功：${result.message || "未知错误"}`);
+    }
     return result;
   }
 
   async function toggleDone(item, isDone) {
-    pending.set(item.id, isDone);
+    const intent = { isDone };
+    pending.set(item.id, intent);
     render();
-    const result = await window.widget.action("setDone", { id: item.id, isDone });
+    const result = await act("setDone", { id: item.id, isDone });
+    // 旧响应不能清掉新操作的 pending，也不能为已被取消的完成操作提供撤销。
+    if (pending.get(item.id) !== intent) return;
     pending.delete(item.id);
-    if (!result?.ok) toast(`没成功：${result?.message || "未知错误"}`);
-    else if (isDone) toast(`已完成「${item.title}」`, () => toggleDone(item, false));
+    if (result?.ok && isDone) toast(`已完成「${item.title}」`, () => toggleDone(item, false));
     render();
   }
   // ── 任务行：今日、规划、月历共用 ──
   function taskRow(item, { child = false } = {}) {
-    const isDone = pending.has(item.id) ? pending.get(item.id) : item.isDone;
+    const isDone = pending.has(item.id) ? pending.get(item.id).isDone : item.isDone;
     const row = el("div", "row");
     if (child) row.classList.add("child");
     if (isDone) row.classList.add("done");
@@ -170,13 +186,19 @@ const W = (() => {
   }
   // ── 快速新建 ──
   // 输入框打开时卡片照常刷新：重画会换掉输入框，所以输入的内容记在这里，换完再放回去。
-  let adding = null; // { key, day, minute, value, fresh }
+  let adding = null; // { key, day, minute, value, fresh, submitting, outcomeUnknown }
 
   function openAdd(key, day, minute = null) {
+    // 换日期/时槽会沿用已有文字；提交中或结果待核实时，不能复制成可再次提交的新草稿。
+    if (adding && (adding.key !== key || adding.minute !== minute) &&
+        (adding.submitting || adding.outcomeUnknown)) {
+      toast(adding.submitting ? "正在添加，请先等待当前提交结果。" : "添加结果未确认，请先核实当前草稿是否已经创建。");
+      return;
+    }
     if (adding && adding.key === key && adding.minute === minute) {
       adding = null;
     } else {
-      adding = { key, day, minute, value: adding?.value || "", fresh: true };
+      adding = { key, day, minute, value: adding?.value || "", fresh: true, submitting: false };
       // 嵌入桌面时卡片平常收不到键盘输入，先让主进程放开
       act("focusInput");
     }
@@ -185,41 +207,61 @@ const W = (() => {
 
   function addSlot(key) {
     if (!adding || adding.key !== key) return null;
+    const draft = adding;
     const box = el("div", "add");
-    if (adding.minute !== null) box.append(el("span", "when", minuteLabel(adding.minute)));
+    if (draft.minute !== null) box.append(el("span", "when", minuteLabel(draft.minute)));
     const input = el("input");
     input.dataset.add = "1";
     input.placeholder = "新任务，回车添加，Esc 关闭";
     input.maxLength = 500;
-    input.value = adding.value;
-    input.addEventListener("input", () => (adding.value = input.value));
+    input.value = draft.value;
+    input.disabled = draft.submitting;
+    input.readOnly = draft.outcomeUnknown === true;
+    if (draft.outcomeUnknown) input.title = "添加结果未确认，可能已创建。请先检查任务列表；确认未创建后才能解锁重试。";
+    input.addEventListener("input", () => (draft.value = input.value));
     input.addEventListener("keydown", (e) => {
+      if (adding !== draft) return;
       if (e.key === "Escape") {
         adding = null;
         render(true);
       } else if (e.key === "Enter" && !e.isComposing) {
         e.preventDefault();
-        submitAdd(input);
+        submitAdd(draft);
       }
     });
     box.append(input);
+    if (draft.outcomeUnknown) {
+      box.append(button("link", "确认未创建", "先在 SP 核对：确认没有创建后解锁输入框，不会自动重发。", () => {
+        if (adding !== draft) return;
+        draft.outcomeUnknown = false;
+        render(true);
+        document.querySelector("input[data-add]")?.focus();
+      }));
+    }
     return box;
   }
 
-  async function submitAdd(input) {
-    const title = input.value.trim();
-    if (!title || !adding) return;
-    const { day, minute } = adding;
-    input.disabled = true;
+  async function submitAdd(draft) {
+    const title = draft.value.trim();
+    if (!title || adding !== draft || draft.submitting || draft.outcomeUnknown) return;
+    const { minute } = draft;
+    // 「今日」是相对日期；跨日保留的草稿按提交时的今日创建，其他日期槽仍用选定日期。
+    const day = draft.key === "today" ? state.view?.today || draft.day : draft.day;
+    // 锁属于草稿而不是某个 DOM 输入框；轮询重画后仍要保持提交中。
+    draft.submitting = true;
+    render(true);
     const result = await act("createTask", { title, day, minute });
-    input.disabled = false;
+    draft.submitting = false;
+    draft.outcomeUnknown = result?.outcomeUnknown === true;
     if (result?.ok) {
-      // 留着输入框，方便接着加下一条
-      if (adding) adding.value = "";
-      input.value = "";
+      draft.value = "";
       toast(`已添加「${result.data?.title || title}」`);
     }
-    input.focus();
+    // 请求期间可能已经收起、另开一份草稿。旧响应不能清空或抢走新草稿的焦点。
+    if (adding === draft) {
+      render(true);
+      document.querySelector("input[data-add]")?.focus();
+    }
   }
 
   /** 刚打开、或重画前正在输入：把焦点放回新的输入框。 */
@@ -233,7 +275,7 @@ const W = (() => {
   // ── 画面 ──
   const isAdding = (key) => !!adding && adding.key === key;
   const addingMinute = () => adding?.minute ?? null;
-  const isDone = (item) => (pending.has(item.id) ? pending.get(item.id) : !!item.isDone);
+  const isDone = (item) => (pending.has(item.id) ? pending.get(item.id).isDone : !!item.isDone);
   const def = () => defs[TYPE] || {};
 
   // 「今日」卡片只拿到日期字符串，标题在这里算。和 calendar.js 的 dayLabel 一致。
@@ -433,7 +475,7 @@ const W = (() => {
 
   return {
     TYPE, define, el, button, clock, duration, minuteLabel, dayTitle, labelOf,
-    act, toggleDone, isDone, sinceSnapshot, taskRow, repeatRow, deadlineRow, dayRows, section, toast,
+    act, toggleDone, isDone, sinceSnapshot, sinceListsSnapshot, taskRow, repeatRow, deadlineRow, dayRows, section, toast,
     openAdd, addSlot, isAdding, addingMinute, render, tick, setState,
   };
 })();

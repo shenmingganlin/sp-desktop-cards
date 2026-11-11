@@ -331,6 +331,15 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
 
     w.webContents.on("will-navigate", (e) => e.preventDefault());
     w.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+    w.webContents.on("render-process-gone", (_event, details) => {
+      // 渲染进程崩掉时原生窗口可能还活着；走 closed 的延迟重建，别留下点不动的空白卡片。
+      if (details.reason === "clean-exit" || quitting || closing.has(type) || wins.get(type) !== w || !usable(w)) return;
+      try {
+        w.destroy();
+      } catch {
+        // 原生窗口已经开始销毁，后续 closed 会接手恢复。
+      }
+    });
     w.on("move", () => onMoved(type, w));
     w.on("resize", () => onResized(type, w));
     w.on("blur", () => {
@@ -346,11 +355,18 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
       setVisible(type, false);
     });
     w.on("closed", () => {
-      if (wins.get(type) === w) wins.delete(type);
+      if (wins.get(type) === w) {
+        wins.delete(type);
+        // 原生窗口消失后旧手势也结束，不能让重建的窗口接着沿旧快照拖动或缩放。
+        if (drag?.start.has(type)) dragEnd();
+        if (resizing?.type === type) resizeEnd();
+      }
       last.delete(type);
       attending.delete(type);
       typing.delete(type);
       const intended = closing.delete(type);
+      // 窗口真正消失后再通知主进程，托盘和轮询空闲状态不能停在淡出前。
+      onChange();
       // 不是我们关的（比如嵌入桌面时 Explorer 重启，把挂在它下面的窗口一起销毁了）：过一会儿重建
       if (quitting || intended) return;
       setTimeout(() => {
@@ -363,6 +379,8 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
       w.showInactive();
       settle();
       fadeTo(type, settings.get().opacity);
+      // create 时还是 show:false；真正露面后再同步托盘与轮询的可见档。
+      onChange();
     });
     w.loadFile(page, { query: { card: type, theme: themeId() } });
     return w;
@@ -488,20 +506,29 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
   function setVisible(type, visible) {
     settings.updateCard(type, { visible });
     const w = wins.get(type);
+    if (visible) closing.delete(type); // 包括全部隐藏中重开：取消主动销毁标记
     if (visible && hiddenAll) {
       showAll(); // 全部藏起来时打开一张：其他的也一起回来
       return;
     }
     if (visible) {
-      closing.delete(type); // 淡出到一半又打开：取消掉原来的销毁
       if (!usable(w)) create(type);
-      else fadeTo(type, settings.get().opacity);
+      else {
+        if (!w.isVisible()) w.setOpacity(0);
+        w.showInactive();
+        applyMode(type);
+        w.setIgnoreMouseEvents(!!settings.get().clickThrough);
+        fadeTo(type, settings.get().opacity);
+      }
     } else if (usable(w)) {
       remember(type);
       closing.add(type);
-      fadeTo(type, 0, () => usable(w) && w.destroy());
+      fadeTo(type, 0, () => {
+        if (usable(w)) w.destroy();
+        else onChange();
+      });
     }
-    onChange();
+    if (visible || !usable(w)) onChange();
   }
 
   function showAll() {
@@ -530,8 +557,21 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
     dragEnd();
     attending.clear();
     typing.clear();
-    for (const [type, w] of alive()) fadeTo(type, 0, () => usable(w) && w.hide());
-    onChange();
+    // 单卡关闭的淡出必须走完 destroy，不能被全部隐藏的 hide 收尾替换。
+    const list = alive().filter(([type]) => !closing.has(type));
+    if (!list.length) {
+      onChange();
+      return;
+    }
+    let pending = list.length;
+    const done = () => {
+      pending -= 1;
+      if (!pending) onChange();
+    };
+    for (const [type, w] of list) fadeTo(type, 0, () => {
+      if (usable(w)) w.hide();
+      done();
+    });
   }
 
   /** 放回默认位置：沿主显示器右边排成一列。 */
@@ -552,6 +592,9 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
 
   // 拔掉显示器或改分辨率后，跑到屏幕外的卡片挪回来
   function rescue() {
+    // 显示环境已变，旧手势的坐标快照不能在下一帧覆盖救援位置。
+    dragEnd();
+    resizeEnd();
     const areas = workAreas();
     for (const [type, w] of alive()) {
       const b = boundsOf(type);
