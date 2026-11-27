@@ -6,12 +6,10 @@ Run from the repository root with Node.js 24 (only built-in Node modules are use
 npm test
 ```
 
-This directory adds 181 isolated regressions to the existing `test/` suite. The
-stabilization candidate was verified with 243 compatibility tests from pinned public
-0.7.4 source and these regressions (424 passed); the release repository retains its
-larger existing suite. The inventory here does not imply a packaged-app E2E pass.
+This directory adds isolated regressions to the existing `test/` suite. The
+inventory here does not imply a packaged-app E2E pass.
 
-The eleven regression files cover:
+The regression files cover:
 
 - `cards-stability.test.js`, `poller-stability.test.js`, `sp-client-validation.test.js`:
   13 earlier renderer-recreation, retry and malformed-list checks.
@@ -26,8 +24,11 @@ The eleven regression files cover:
   rejections, explicit closing and unrelated later drafts remain usable.
 - `snap-display.test.js`: 6 geometry checks for upper/lower displays, negative
   coordinates, intersecting displays and existing same-display stacking.
-- `cards-display-recovery.test.js`: 4 checks that cancel stale drag/resize state
-  before rescuing cards after display removal or display-metrics changes.
+- `cards-display-recovery.test.js`: 7 checks covering stale drag/resize state,
+  display addition and removal, late native geometry changes, and keeping the
+  saved full height of a collapsed card.
+- `cards-taskbar.test.js`: 3 checks for hiding card buttons from the Windows
+  taskbar during quick entry, mode and visibility changes, and desktop reattachment.
 - `main-write-feedback.test.js`: 14 checks executing actual main menu/action
   boundaries and the real client with in-memory responses. Known rejection and
   unknown write outcomes have distinct feedback and do not trigger replay.

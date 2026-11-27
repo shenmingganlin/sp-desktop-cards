@@ -2,7 +2,7 @@
 //
 // 拖动不用系统的标题栏拖动（-webkit-app-region），因为要整组一起走、还要吸附：
 // 页面在顶栏按下鼠标时通知这里，这里每 16ms 读一次光标位置挪窗口，松开时页面再通知一声。
-// 位置一律用窗口外框，最小最大尺寸也按外框算。读写都经过 boundsOf / place，见下面「缩放误差」。
+// 位置、尺寸和吸附统一使用 Electron 的逻辑像素（DIP）。
 
 import { BrowserWindow, screen } from "electron";
 import * as desktop from "./desktop.js";
@@ -36,13 +36,16 @@ const RECREATE_MS = 1500;
 const INPUT_CHECK_MS = 500;
 const SETTLE_MS = 16; // 桌面层多久校一次；16ms 约一帧，点桌面把卡片带起来也看不出来
 const FADE_MS = 140; // 显示/隐藏的淡入淡出时长
+const DISPLAY_SETTLE_MS = 150;
+const BOUNDS_TOLERANCE = 4;
+const MAX_SIZE = 10000;
 
 /**
  * settings 是设置存储；page 是 card.html 的路径；onChange 在卡片显示/隐藏后调用（刷新托盘菜单）。
  */
 export function createCards({ settings, preload, page, icon, onChange = () => {}, onGroupDrag = () => {}, themeId = () => "dark" }) {
   const wins = new Map(); // type → BrowserWindow
-  const last = new Map(); // type → 上次已知的外框，用来算改大小前后的差
+  const layout = new Map(); // type → 应用最后设置的逻辑外框
   const closing = new Set(); // 主动关掉的卡片，关掉后不要重建
   const attending = new Set(); // 番茄钟到点时临时浮到最上面的卡片
   const typing = new Set(); // 正在其中打字的卡片（快速新建）；桌面模式下唯一允许激活的情形
@@ -53,6 +56,7 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
   let reattachTimer = null;
   let inputTimer = null;
   let settleTimer = null;
+  let displayTimer = null;
   let topHeld = false; // 弹原生对话框时临时取消置顶，别让卡片挡住对话框
 
   // 判活走 windowAlive：只看 isDestroyed() 会在「原生窗口已被系统销毁、closed 还没派发」
@@ -78,28 +82,26 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
     }
   }
 
-  // ── 缩放误差 ──
-  // 系统缩放不是 100% 时（比如 150%），无边框窗口 getBounds 报的尺寸比 setBounds 设的多一两个像素，
-  // setPosition 也会顺带改尺寸。拿报出来的值存下来再设回去，卡片就一次比一次大，拼好的卡片也会错开。
-  // 所以记下每张卡片「报的」减「设的」，读的时候扣掉；摆位置一律用 place，带上设的尺寸。
-  const skew = new Map(); // type → { x, y, w, h }
-  const ZERO = { x: 0, y: 0, w: 0, h: 0 };
-  const MAX_SKEW = 4; // 再大就不是取整误差了（比如被最小尺寸卡住），不当误差处理
-
+  // 拖动和缩放都由应用处理；系统在切换分辨率或 DPI 时上报的临时外框不进入布局。
   function boundsOf(type) {
-    const b = wins.get(type).getBounds();
-    const k = skew.get(type) || ZERO;
-    return { x: b.x - k.x, y: b.y - k.y, width: b.width - k.w, height: b.height - k.h };
+    return layout.get(type);
   }
 
   function place(type, r) {
     const w = wins.get(type);
-    const target = { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) };
+    const min = MIN_SIZE[type];
+    const target = {
+      x: Math.round(r.x), y: Math.round(r.y),
+      width: Math.max(min.width, Math.min(MAX_SIZE, Math.round(r.width))),
+      height: settings.get().cards[type].collapsed ? HEADER_HEIGHT : Math.max(min.height, Math.min(MAX_SIZE, Math.round(r.height))),
+    };
     quietly(() => w.setBounds(target));
-    const b = w.getBounds();
-    const k = { x: b.x - target.x, y: b.y - target.y, w: b.width - target.width, h: b.height - target.height };
-    skew.set(type, Object.values(k).every((v) => Math.abs(v) <= MAX_SKEW) ? k : ZERO);
-    last.set(type, target);
+    layout.set(type, target);
+  }
+
+  function boundsMatch(w, target) {
+    const actual = w.getBounds();
+    return Object.keys(target).every((key) => Math.abs(actual[key] - target[key]) <= BOUNDS_TOLERANCE);
   }
 
   /** 记下卡片位置。折叠时只记位置和宽度，展开高度保持原值。 */
@@ -127,9 +129,9 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
     quietly(() => {
       if (settings.get().cards[type].collapsed) {
         w.setMinimumSize(min.width, HEADER_HEIGHT);
-        w.setMaximumSize(10000, HEADER_HEIGHT);
+        w.setMaximumSize(MAX_SIZE, HEADER_HEIGHT);
       } else {
-        w.setMaximumSize(10000, 10000);
+        w.setMaximumSize(MAX_SIZE, MAX_SIZE);
         w.setMinimumSize(min.width, min.height);
       }
     });
@@ -170,6 +172,7 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
       desktop.detach(w);
       w.setFocusable(true);
     }
+    w.setSkipTaskbar(true);
     settle();
   }
 
@@ -257,8 +260,9 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
     // Explorer 重启后桌面窗口会换，得重新挂上去；顺便校一次位置。
     reattachTimer = setInterval(guard(() => {
       for (const [type, w] of alive()) {
-        if (!w.isVisible() || attending.has(type)) continue;
-        desktop.attach(w);
+        if (!w.isVisible()) continue;
+        if (!attending.has(type)) desktop.attach(w);
+        w.setSkipTaskbar(true);
       }
       // 打字状态靠 blur 释放，blur 偶尔不触发，这里兜一下
       for (const type of [...typing]) {
@@ -307,6 +311,7 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
       maximizable: false,
       fullscreenable: false,
       skipTaskbar: true,
+      ...(process.platform === "win32" ? { type: "toolbar" } : {}),
       show: false,
       backgroundColor: backgroundOf(themeId()),
       title: `SP 桌面卡片 · ${CARD_TITLE[type]}`,
@@ -340,8 +345,11 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
         // 原生窗口已经开始销毁，后续 closed 会接手恢复。
       }
     });
-    w.on("move", () => onMoved(type, w));
-    w.on("resize", () => onResized(type, w));
+    const boundsChanged = () => {
+      if (!applying && wins.get(type) === w && usable(w) && !boundsMatch(w, boundsOf(type))) scheduleDisplayRecovery();
+    };
+    w.on("move", boundsChanged);
+    w.on("resize", boundsChanged);
     w.on("blur", () => {
       // 桌面模式下卡片本来就不该被激活，只有快速新建打字时会；失焦就把可激活还回去。
       if (mode() !== "desktop" || !usable(w) || !typing.has(type)) return;
@@ -357,11 +365,11 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
     w.on("closed", () => {
       if (wins.get(type) === w) {
         wins.delete(type);
+        layout.delete(type);
         // 原生窗口消失后旧手势也结束，不能让重建的窗口接着沿旧快照拖动或缩放。
         if (drag?.start.has(type)) dragEnd();
         if (resizing?.type === type) resizeEnd();
       }
-      last.delete(type);
       attending.delete(type);
       typing.delete(type);
       const intended = closing.delete(type);
@@ -377,6 +385,7 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
       if (hiddenAll || !usable(w)) return;
       w.setOpacity(0); // 隐藏期间设的不透明度不一定会落下去，露面前再钉一次
       w.showInactive();
+      w.setSkipTaskbar(true);
       settle();
       fadeTo(type, settings.get().opacity);
       // create 时还是 show:false；真正露面后再同步托盘与轮询的可见档。
@@ -384,24 +393,6 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
     });
     w.loadFile(page, { query: { card: type, theme: themeId() } });
     return w;
-  }
-
-  function onMoved(type, w) {
-    if (applying || drag?.start.has(type) || !usable(w)) return;
-    last.set(type, boundsOf(type));
-    remember(type);
-  }
-
-  // 用户拖边缘改大小：拼在四周的卡片跟着让开或靠拢
-  function onResized(type, w) {
-    if (!usable(w)) return;
-    const after = boundsOf(type);
-    const before = last.get(type);
-    last.set(type, after);
-    if (applying || drag || !before) return;
-    if (before.width === after.width && before.height === after.height) return;
-    shiftBy(followResize(rects(type), type, before, after));
-    remember(type);
   }
 
   // ── 拖动 ──
@@ -466,7 +457,7 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
     if (!resizing) return;
     if (desktop.primaryButtonDown() === false) return resizeEnd(); // 页面没收到松开事件时兜底
     const p = screen.getCursorScreenPoint();
-    const before = last.get(resizing.type) || resizing.start;
+    const before = boundsOf(resizing.type);
     const others = [...rects(resizing.type)];
     const next = resizeRect(resizing.start, resizing.edges, p.x - resizing.cursor.x, p.y - resizing.cursor.y, MIN_SIZE[resizing.type], {
       others: others.map(([, r]) => r),
@@ -476,7 +467,7 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
     if (before.x === next.x && before.y === next.y && before.width === next.width && before.height === next.height) return;
     place(resizing.type, next);
     // 拼在这条边上的卡片跟着让开或靠拢（一起挪，别每帧写设置）
-    shiftBy(followResize(new Map(others), resizing.type, before, next), false);
+    shiftBy(followResize(new Map(others), resizing.type, before, boundsOf(resizing.type)), false);
   }
 
   function resizeEnd() {
@@ -498,7 +489,7 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
     const height = collapsed ? HEADER_HEIGHT : settings.get().cards[type].bounds?.height ?? CARD_SIZE[type].height;
     applyLimits(type);
     place(type, { ...before, height });
-    const after = last.get(type);
+    const after = boundsOf(type);
     shiftBy(followResize(others, type, before, after));
   }
 
@@ -590,20 +581,47 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
     }
   }
 
-  // 拔掉显示器或改分辨率后，跑到屏幕外的卡片挪回来
-  function rescue() {
-    // 显示环境已变，旧手势的坐标快照不能在下一帧覆盖救援位置。
+  function rescueDisplay(reapply = false) {
+    const areas = workAreas();
+    if (!areas.length) return;
+    const list = alive();
+    const repair = list.filter(([type, w]) => {
+      const b = boundsOf(type);
+      return reapply || !isOnScreen(b, areas) || !boundsMatch(w, b);
+    });
+    if (!repair.length) return;
     dragEnd();
     resizeEnd();
-    const areas = workAreas();
-    for (const [type, w] of alive()) {
+    for (const [type, w] of repair) {
+      if (!usable(w)) continue;
       const b = boundsOf(type);
-      if (isOnScreen(b, areas)) continue;
-      const spot = defaultSpot({ width: b.width, height: b.height }, [...rects(type).values()], screen.getPrimaryDisplay().workArea);
-      place(type, spot);
-      remember(type);
+      if (isOnScreen(b, areas)) place(type, b);
+      else {
+        const spot = defaultSpot({ width: b.width, height: b.height }, [...rects(type).values()], screen.getPrimaryDisplay().workArea);
+        place(type, spot);
+        remember(type);
+      }
+      if (reapply && w.isVisible()) {
+        if (mode() === "desktop" && !attending.has(type)) desktop.attach(w);
+        w.setSkipTaskbar(true);
+      }
     }
+    settle();
   }
+
+  function scheduleDisplayRecovery() {
+    if (quitting || displayTimer !== null) return;
+    displayTimer = setTimeout(guard(() => {
+      displayTimer = null;
+      rescueDisplay();
+    }), DISPLAY_SETTLE_MS);
+  }
+
+  const displayEvents = ["display-added", "display-removed", "display-metrics-changed"];
+  const displayChanged = guard(() => {
+    rescueDisplay(true);
+    scheduleDisplayRecovery();
+  });
 
   /**
    * 需要打字时调用（快速新建）。嵌入桌面时卡片平常不可激活，收不到键盘输入，这里临时放开；
@@ -657,8 +675,7 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
       for (const type of CARD_TYPES) if (settings.get().cards[type].visible) create(type);
       syncTimer();
       syncInputTimer();
-      screen.on("display-removed", rescue);
-      screen.on("display-metrics-changed", rescue);
+      for (const event of displayEvents) screen.on(event, displayChanged);
     },
     quit() {
       quitting = true;
@@ -667,6 +684,8 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
       clearInterval(reattachTimer);
       clearInterval(inputTimer);
       clearInterval(settleTimer);
+      clearTimeout(displayTimer);
+      for (const event of displayEvents) screen.removeListener(event, displayChanged);
       // 窗口马上就要一起关了，补间直接停掉，不必再补 hide / destroy
       for (const type of [...fades.keys()]) stopFade(type);
       for (const [type] of alive()) remember(type);
@@ -737,8 +756,8 @@ export function createCards({ settings, preload, page, icon, onChange = () => {}
     },
     types: () => alive().map(([type]) => type),
     window: (type) => (usable(wins.get(type)) ? wins.get(type) : null),
-    /** 卡片位置（扣掉缩放误差，和设置里存的一致）。 */
-    bounds: (type) => (usable(wins.get(type)) ? boundsOf(type) : null),
+    /** 卡片的逻辑外框，和设置里存的一致。 */
+    bounds: (type) => (usable(wins.get(type)) ? { ...boundsOf(type) } : null),
     send(type, channel, payload) {
       const w = wins.get(type);
       if (!usable(w)) return;

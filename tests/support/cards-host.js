@@ -3,12 +3,17 @@ import vm from "node:vm";
 import { Clock } from "./clock.js";
 import { importMain, readMainSource } from "./source.js";
 
-export async function cardsHost() {
+export async function cardsHost({
+  bounds = { x: 100, y: 100, width: 320, height: 132 },
+  displays = [{ workArea: { x: 0, y: 0, width: 1920, height: 1080 } }],
+  mode = "normal",
+  desktopAvailable = mode === "desktop",
+} = {}) {
   const clock = new Clock();
   const created = [];
   const data = {
-    mode: "normal", opacity: 0.95, clickThrough: true,
-    cards: { focus: { visible: true, bounds: { x: 100, y: 100, width: 320, height: 132 }, collapsed: false } },
+    mode, opacity: 0.95, clickThrough: true,
+    cards: { focus: { visible: true, bounds: { ...bounds }, collapsed: false } },
   };
   const settings = {
     get: () => structuredClone(data),
@@ -22,6 +27,11 @@ export async function cardsHost() {
       this.visible = false;
       this.opacity = 0;
       this.destroyed = false;
+      this.windowType = options.type;
+      this.skipTaskbar = !!options.skipTaskbar;
+      this.focusable = options.focusable !== false;
+      this.focused = false;
+      this.desktopAttached = false;
       this.webContents = new EventEmitter();
       this.webContents.setWindowOpenHandler = () => {};
       this.webContents.isLoading = () => false;
@@ -38,7 +48,19 @@ export async function cardsHost() {
     setMinimumSize() {}
     setMaximumSize() {}
     setAlwaysOnTop() {}
-    setFocusable() {}
+    setFocusable(value) {
+      this.focusable = value;
+      this.setSkipTaskbar(!value);
+      if (!value) this.focused = false;
+    }
+    setSkipTaskbar(value) { this.skipTaskbar = value; }
+    isFocused() { return this.focused; }
+    focus() { this.focused = this.focusable; }
+    blur() {
+      this.focused = false;
+      this.emit("blur");
+    }
+    moveTop() {}
     setIgnoreMouseEvents(value) { this.clickThrough = value; }
     loadFile() {}
     showInactive() { this.visible = true; }
@@ -52,13 +74,22 @@ export async function cardsHost() {
   }
 
   const screen = new EventEmitter();
-  screen.getAllDisplays = () => [{ workArea: { x: 0, y: 0, width: 1920, height: 1080 } }];
+  screen.getAllDisplays = () => displays;
   screen.getPrimaryDisplay = () => screen.getAllDisplays()[0];
   const snap = await importMain("snap.js");
   const { windowAlive } = await importMain("win.js");
-  const desktop = { available: () => false, detach() {}, primaryButtonDown: () => null, altDown: () => false };
+  const desktop = {
+    available: () => desktopAvailable,
+    attach(window) { window.desktopAttached = true; return true; },
+    detach(window) { window.desktopAttached = false; },
+    atDesktopLayer: (window) => window.desktopAttached,
+    toDesktopLayer() {},
+    keepClickable() {},
+    primaryButtonDown: () => null,
+    altDown: () => false,
+  };
   const sandbox = {
-    BrowserWindow, screen, desktop,
+    BrowserWindow, screen, desktop, process: { platform: "win32" },
     CARD_TYPES: ["focus"], CARD_SIZE: { focus: { width: 320, height: 132 } },
     ...snap, windowAlive, backgroundOf: () => "#000000",
     setTimeout: clock.setTimeout, clearTimeout: clock.clearTimeout,

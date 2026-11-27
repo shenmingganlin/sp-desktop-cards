@@ -257,11 +257,12 @@ test("回归：隐藏最后一张卡片后，状态回调能看到已无可见�
   let now = 0;
   const context = vm.createContext({
     settings,
+    process: { platform: "win32" },
     CARD_TYPES: ["today"],
     CARD_SIZE: { today: { width: 320, height: 380 } },
     HEADER_HEIGHT: 34,
     GAP: 6,
-    screen: { getAllDisplays: () => [{ workArea: { x: 0, y: 0, width: 1920, height: 1080 } }], getPrimaryDisplay: () => ({ workArea: { x: 0, y: 0, width: 1920, height: 1080 } }), on() {} },
+    screen: { getAllDisplays: () => [{ workArea: { x: 0, y: 0, width: 1920, height: 1080 } }], getPrimaryDisplay: () => ({ workArea: { x: 0, y: 0, width: 1920, height: 1080 } }), on() {}, removeListener() {} },
     desktop: { available: () => false, detach() {}, attach() {}, toDesktopLayer() {}, atDesktopLayer: () => false, keepClickable() {}, primaryButtonDown: () => null, altDown: () => false },
     windowAlive,
     backgroundOf: () => "#000",
@@ -281,6 +282,7 @@ test("回归：隐藏最后一张卡片后，状态回调能看到已无可见�
       setMaximumSize() {}
       setAlwaysOnTop() {}
       setFocusable() {}
+      setSkipTaskbar() {}
       setIgnoreMouseEvents() {}
       setBackgroundColor() {}
       setOpacity(value) { this.opacity = value; }

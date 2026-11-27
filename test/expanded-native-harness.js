@@ -93,6 +93,7 @@ function windows() {
     setMaximumSize(w, h) { this.native(); this.maximum = [w, h]; }
     setAlwaysOnTop() { this.native(); }
     setFocusable() { this.native(); }
+    setSkipTaskbar() { this.native(); }
     setIgnoreMouseEvents() { this.native(); }
     setOpacity(value) { this.native(); this.opacity = value; }
     getOpacity() { this.native(); return this.opacity; }
@@ -134,6 +135,7 @@ export function nativeHarness(patches = { today: { visible: true, bounds: POSITI
   };
   const context = vm.createContext({
     ...snap, CARD_SIZE, CARD_TYPES, windowAlive, backgroundOf, BrowserWindow, screen, desktop, ...clock.globals(),
+    process: { platform: "win32" },
   });
   vm.runInContext(`${cardsSource}\nglobalThis.makeCards = createCards; globalThis.cardTitles = CARD_TITLE;`, context);
   const changes = [];

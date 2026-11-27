@@ -22,15 +22,12 @@ const VK_MENU = 0x12;
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const out = path.join(root, ".smoke", "resize");
-fs.rmSync(out, { recursive: true, force: true });
-const userData = path.join(out, "user-data");
-fs.mkdirSync(userData, { recursive: true });
+fs.mkdirSync(out, { recursive: true });
 // 今日在左上，规划拼在它正下方、更宽（下边缘和今日右边缘共线时最容易看出吸没吸）
 const BLANK = {
   today: { x: 400, y: 200, width: 320, height: 300 },
   planner: { x: 400, y: 506, width: 600, height: 300 },
 };
-fs.writeFileSync(path.join(userData, "settings.json"), JSON.stringify({ version: 2, tourDone: true, mode: "normal", cards: { today: { visible: true, bounds: BLANK.today }, planner: { visible: true, bounds: BLANK.planner } } }));
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function drag(x0, y0, dx, dy, { alt = false } = {}) {
@@ -50,7 +47,9 @@ async function drag(x0, y0, dx, dy, { alt = false } = {}) {
 }
 
 const sp = await startFakeSp({ data: sampleData(Date.now()) });
-const app = await _electron.launch({ args: [root], env: { ...process.env, SPW_USER_DATA: userData, SPW_BASE_URL: sp.url, SPW_TOKEN: sp.token } });
+const launchOptions = process.env.SPW_EXE ? { executablePath: path.resolve(process.env.SPW_EXE) } : { args: [root] };
+let app = null;
+let userData;
 const results = [];
 const check = async (name, fn) => {
   try {
@@ -62,25 +61,30 @@ const check = async (name, fn) => {
 };
 
 try {
-  for (let i = 0; i < 100 && app.windows().length < 2; i++) await sleep(100);
-  await sleep(1000);
   // 位置从设置文件读：窗口自己报的尺寸带着缩放取整的一两个像素，存下来的才是真正生效的逻辑位置
   const stored = async () => {
     await sleep(700); // 等存盘（合并 400ms）
     const s = JSON.parse(fs.readFileSync(path.join(userData, "settings.json"), "utf8"));
     return { today: s.cards.today.bounds, planner: s.cards.planner.bounds };
   };
-  // 直接改窗口大小会触发跟着挪的逻辑，所以摆回原位后以读回来的值为准
   const reset = async () => {
-    await app.evaluate(({ BrowserWindow }, box) => {
-      for (const t of ["today", "planner"]) BrowserWindow.getAllWindows().find((x) => x.webContents.getURL().includes(`card=${t}`))?.setBounds(box[t]);
-    }, BLANK);
-    await sleep(500);
-    await app.evaluate(({ BrowserWindow }, box) => {
-      for (const t of ["today", "planner"]) BrowserWindow.getAllWindows().find((x) => x.webContents.getURL().includes(`card=${t}`))?.setBounds(box[t]);
-    }, BLANK);
-    await sleep(500);
-    return stored();
+    await app?.close();
+    app = null;
+    userData = fs.mkdtempSync(path.join(out, "user-data-"));
+    fs.writeFileSync(path.join(userData, "settings.json"), JSON.stringify({
+      version: 2, tourDone: true, mode: "normal", autoUpdate: false, openAtLogin: false,
+      cards: { today: { visible: true, bounds: BLANK.today }, planner: { visible: true, bounds: BLANK.planner } },
+    }));
+    app = await _electron.launch({ ...launchOptions, env: { ...process.env, SPW_USER_DATA: userData, SPW_BASE_URL: sp.url, SPW_TOKEN: sp.token } });
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const shown = await app.evaluate(({ BrowserWindow }) => {
+        const windows = BrowserWindow.getAllWindows().filter((window) => window.isVisible());
+        return ["today", "planner"].every((type) => windows.some((window) => window.webContents.getURL().includes(`card=${type}`)));
+      });
+      if (shown) return stored();
+      await sleep(100);
+    }
+    throw new Error("今日和规划卡片未能及时显示");
   };
 
   await check("四个方向、右下角都拉得动（0.2.2 左右两边常常拉不动）", async () => {
@@ -124,9 +128,9 @@ try {
   });
 
   await check("拉到屏幕边上会吸住", async () => {
+    const b = await reset();
     const area = await app.evaluate(({ screen }) => screen.getPrimaryDisplay().workArea);
     const right = area.x + area.width;
-    const b = await reset();
     const t = b.today;
     await drag(t.x + t.width - 2, t.y + Math.round(t.height / 2), right - (t.x + t.width) - 6, 0);
     const now = (await stored()).today;
@@ -143,8 +147,11 @@ try {
     assert.equal(now.planner.y, b.planner.y + grew, "下面的卡片没跟着挪");
   });
 } finally {
-  await app.evaluate(({ app: a }) => a.exit(0)).catch(() => {});
-  await sp.close();
+  try {
+    await app?.close();
+  } finally {
+    await sp.close();
+  }
 }
 console.log(results.join("\n"));
 if (results.some((r) => r.startsWith("✖"))) process.exit(1);
